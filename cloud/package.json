@@ -1,0 +1,16 @@
+{
+  "name": "treadmill-upload",
+  "private": true,
+  "description": "Receives walk logs from the treadmill display and stores them in Cloudflare R2",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261110.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.160.0"
+  }
+}
