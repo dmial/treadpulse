@@ -28,7 +28,9 @@ Wi-Fi shares the radio with Bluetooth, so it stays off while you walk. The board
 
 - at power-on, before it looks for the treadmill (at most 30 seconds of uploading; the rest waits until after the walk);
 - right after a walk ends;
-- every 10 minutes after a failed attempt, while no walk is going on.
+- after a failed attempt, while no walk is going on: every minute while the clock is not set yet (without it the daily ring shows only walks since power-on), otherwise every 10 minutes.
+
+Each time it tries to join the network twice, 10 seconds each, and writes to the serial log why the network refused.
 
 A walk goes up file by file, the summary last. Once the receiver has confirmed all three files, the board deletes the walk. In the bucket, files keep the same paths: `walks/<walk>/<file>`.
 

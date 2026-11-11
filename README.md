@@ -1,5 +1,7 @@
 # TreadPulse
 
+Shows and records your treadmill walks and heart rate without a single tap: no squinting at the treadmill's own display, often tucked under the desk, and no phone app to open and connect to a heart rate strap. Step on and walk.
+
 A big, glanceable second screen for your treadmill: walking time, a daily goal ring and live heart rate zones that beep when you cross your thresholds. Works with any treadmill that speaks the standard Bluetooth fitness machine protocol (FTMS).
 
 ![TreadPulse during a walk](docs/images/walk.png)

@@ -32,13 +32,16 @@ namespace {
 
 constexpr uint32_t kTickMs = 1000;   // tracker + log + screen update rate
 constexpr uint32_t kFreshMs = 3000;  // data older than this counts as "no link"
-constexpr uint32_t kWifiTimeoutMs = 15000;
+constexpr uint32_t kWifiTimeoutMs = 20000;  // two attempts of 10 s (net.h)
 constexpr uint32_t kNtpTimeoutMs = 10000;
 // At power-on the user is about to walk, so the upload there is kept short;
 // whatever is left goes after the walk.
 constexpr uint32_t kBootUploadBudgetMs = 30000;
 constexpr uint32_t kUploadBudgetMs = 120000;
 constexpr uint32_t kNetRetryMs = 10UL * 60 * 1000;          // after a failed attempt
+// Without a clock the day ring cannot tell today's saved walks from older ones
+// and shows only this boot's, so a missing clock is retried sooner.
+constexpr uint32_t kClockRetryMs = 60UL * 1000;
 constexpr uint32_t kClockResyncMs = 24UL * 60 * 60 * 1000;  // daily drift correction
 // The walk in progress is saved to the day log this often: a power cut loses
 // at most this much of the daily total.
@@ -109,7 +112,8 @@ void netSession(uint32_t uploadBudgetMs) {
 void maybeNetSession(uint32_t now) {
     if (tracker.inSession()) return;
     if (!clockDue(now) && storage.pendingCount() == 0) return;
-    if (!netNow && now - lastNetMs < kNetRetryMs) return;
+    const uint32_t retryMs = clocksync::isSynced() ? kNetRetryMs : kClockRetryMs;
+    if (!netNow && now - lastNetMs < retryMs) return;
     netSession(kUploadBudgetMs);
 }
 
