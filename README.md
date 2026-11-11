@@ -25,8 +25,8 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 
 | Part | What to get |
 |---|---|
-| Display board | [Freenove ESP32-S3 Display 5″](https://docs.freenove.com/projects/fnk0115/en/latest/) (FNK0115): 800×480 screen, ESP32-S3, speaker. |
-| Treadmill | Any with Bluetooth [FTMS](https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/). Look for it in the specs; treadmills that work with apps like Zwift or Kinomap usually have it. Tested on the [Merach W50](https://merachfit.com/products/novawalk-w50-trekpad). |
+| Display board | [Freenove ESP32-S3 Display 5″](https://store.freenove.com/products/fnk0115) (FNK0115, [docs](https://docs.freenove.com/projects/fnk0115/en/latest/)): 800×480 screen, ESP32-S3, speaker. |
+| Treadmill | Any with Bluetooth [FTMS](https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/). Look for it in the specs; treadmills that work with apps like Zwift or Kinomap usually have it. Tested on the [Merach W50](https://merachfit.eu/products/merach-w50-treadmill). |
 | Heart rate strap (optional) | Any Bluetooth chest strap, e.g. [Polar H10](https://www.polar.com/en/sensors/h10-heart-rate-sensor). |
 | Power | Any USB-C phone charger. |
 
