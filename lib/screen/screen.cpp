@@ -206,6 +206,21 @@ std::string walkClock(uint32_t s) {
     return buf;
 }
 
+// 45 -> "45m", 83 -> "1h 23m", 125 -> "2h 05m"; a round hour may drop its
+// minutes (120 -> "2h"). No colon: that is the walk's timer.
+std::string hoursMinutes(uint32_t minutes, bool dropZeroMinutes = false) {
+    const unsigned long h = minutes / 60, m = minutes % 60;
+    char buf[24];
+    if (h == 0) {
+        snprintf(buf, sizeof(buf), "%lum", m);
+    } else if (m == 0 && dropZeroMinutes) {
+        snprintf(buf, sizeof(buf), "%luh", h);
+    } else {
+        snprintf(buf, sizeof(buf), "%luh %02lum", h, m);
+    }
+    return buf;
+}
+
 // 8715 -> "8,715 steps".
 std::string steps(uint32_t n) {
     std::string digits = std::to_string(n);
@@ -335,6 +350,24 @@ void Dashboard::buildRing() {
     todayValue_ = makeLabel(dash_, &geo_44, kWhite, Align::Center, kLeftX, kTodayBaseline, 140);
     todayCaption_ = makeLabel(dash_, &geo_16, kMuted, Align::Center, kLeftX, kTodayCaptionBaseline, 140);
     todaySteps_ = makeLabel(dash_, &geo_18, kLineLabel, Align::Center, kLeftX, kTodayStepsBaseline, 150);
+
+    // Today in hours and minutes: digits as big as the minutes', the letters
+    // small and gray, so they read as units. Laid out in drawToday().
+    for (int i = 0; i < 4; ++i) {
+        const bool unit = i % 2 == 1;
+        todayParts_[i] = makeLabel(dash_, unit ? &geo_26 : &geo_44, kWhite, Align::Left, kLeftX,
+                                   kTodayBaseline, 10);
+        setVisible(todayParts_[i], false);
+    }
+
+    // A tap anywhere on the ring switches minutes / hours and minutes. Over
+    // everything else in the ring, which takes no taps itself.
+    lv_obj_t* tap = lv_obj_create(dash_);
+    lv_obj_remove_style_all(tap);
+    lv_obj_remove_flag(tap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(tap, 2 * kRingOuter, 2 * kRingOuter);
+    lv_obj_set_pos(tap, kLeftX - kRingOuter, kRingY - kRingOuter);
+    lv_obj_add_event_cb(tap, onRingTap, LV_EVENT_CLICKED, this);
 }
 
 void Dashboard::buildNumbers() {
@@ -474,20 +507,93 @@ void Dashboard::updateRing(const Model& m) {
     setLap(lap1_, lap1, !up ? (met ? kOffDim : kOff) : (met ? kFirstLap : kWhite));
     setLap(lap2_, lap2, up ? kWhite : kOff);
 
-    // The day counts in whole minutes, as the walks on the day strip do: only the
-    // walk's timer (minutes and seconds) has a colon.
-    setText(todayValue_, std::to_string(total / 60));
-    setTextColor(todayValue_, up ? kWhite : kOff);
+    today_.totalS = total;
+    today_.goalS = goal;
+    today_.steps = m.today.totalSteps;
+    today_.up = up;
+    hasToday_ = true;
+    drawToday();
+}
+
+void Dashboard::setTodayInHours(bool on) {
+    todayInHours_ = on;
+    if (hasToday_) drawToday();
+}
+
+void Dashboard::onRingTap(lv_event_t* e) {
+    auto* self = static_cast<Dashboard*>(lv_event_get_user_data(e));
+    self->setTodayInHours(!self->todayInHours_);
+    if (self->onTodayFormat_) self->onTodayFormat_(self->todayInHours_);
+}
+
+// The ring's centre. The day counts in whole minutes, as the walks on the day
+// strip do, or in hours and minutes: only the walk's timer has a colon.
+void Dashboard::drawToday() {
+    const TodayView& t = today_;
+    const bool met = t.totalS >= t.goalS;
+    const uint32_t minutes = t.totalS / 60;
+    const uint32_t digitColor = t.up ? kWhite : kOff;
+
+    if (todayInHours_) {
+        setVisible(todayValue_, false);
+        placeTodayHours(minutes, digitColor, t.up ? kLineLabel : kOff);
+    } else {
+        for (lv_obj_t* p : todayParts_) setVisible(p, false);
+        setVisible(todayValue_, true);
+        setText(todayValue_, std::to_string(minutes));
+        setTextColor(todayValue_, digitColor);
+    }
+
+    const uint32_t goalMin = t.goalS / 60;
+    const uint32_t overMin = met ? (t.totalS - t.goalS) / 60 : 0;
     if (!met) {
-        setText(todayCaption_, "of " + std::to_string(goal / 60) + " min today");
-    } else if (total - goal < 60) {
+        setText(todayCaption_, "of " +
+                                   (todayInHours_ ? hoursMinutes(goalMin, true)
+                                                  : std::to_string(goalMin) + " min") +
+                                   " today");
+    } else if (overMin == 0) {
         setText(todayCaption_, "goal reached");
     } else {
-        setText(todayCaption_, "+" + std::to_string((total - goal) / 60) + " min over");
+        setText(todayCaption_, "+" +
+                                   (todayInHours_ ? hoursMinutes(overMin)
+                                                  : std::to_string(overMin) + " min") +
+                                   " over");
     }
-    setTextColor(todayCaption_, met && up ? kWhite : kMuted);
-    setText(todaySteps_, steps(m.today.totalSteps));
-    setTextColor(todaySteps_, up ? kLineLabel : kOff);
+    setTextColor(todayCaption_, met && t.up ? kWhite : kMuted);
+    setText(todaySteps_, steps(t.steps));
+    setTextColor(todaySteps_, t.up ? kLineLabel : kOff);
+}
+
+// "1h 05m" (or "45m" under an hour) centred in the ring, digits and letters on
+// one baseline. Laid out again only when the text changes.
+void Dashboard::placeTodayHours(uint32_t minutes, uint32_t digitColor, uint32_t unitColor) {
+    constexpr int32_t kUnitGap = 2;   // a number to its letter
+    constexpr int32_t kPartGap = 10;  // "h" to the minutes
+    const uint32_t h = minutes / 60, m = minutes % 60;
+    const bool withHours = h > 0;
+    char mins[8];
+    snprintf(mins, sizeof(mins), withHours ? "%02lu" : "%lu", static_cast<unsigned long>(m));
+    const std::string text[4] = {withHours ? std::to_string(h) : "", "h", mins, "m"};
+
+    const std::string key = text[0] + " " + text[2];
+    if (key != todayPartsText_) {
+        todayPartsText_ = key;
+        int32_t w[4];
+        for (int i = 0; i < 4; ++i) {
+            w[i] = textWidth(text[i].c_str(), lv_obj_get_style_text_font(todayParts_[i], LV_PART_MAIN));
+        }
+        const int32_t total = (withHours ? w[0] + kUnitGap + w[1] + kPartGap : 0) + w[2] + kUnitGap + w[3];
+        int32_t x = kLeftX - total / 2;
+        for (int i = withHours ? 0 : 2; i < 4; ++i) {
+            setText(todayParts_[i], text[i]);
+            place(todayParts_[i], Align::Left, x, kTodayBaseline, w[i] + 4);
+            x += w[i] + (i % 2 == 0 ? kUnitGap : kPartGap);
+        }
+    }
+    for (int i = 0; i < 4; ++i) {
+        setVisible(todayParts_[i], withHours || i >= 2);
+        setTextColor(todayParts_[i], i % 2 == 0 ? digitColor : unitColor);
+    }
 }
 
 void Dashboard::updateNumbers(const Model& m) {

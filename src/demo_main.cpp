@@ -9,6 +9,7 @@
 #include "screen.h"
 #include "screen_demo.h"
 #include "screen_settings.h"
+#include "touch.h"
 
 namespace {
 
@@ -25,6 +26,7 @@ void setup() {
     delay(200);
     Serial.println("\n[boot] treadmill display: screen demo");
     if (!display::begin()) return;
+    touch::begin();  // a tap on the ring switches its format, as in the real firmware
     dash = new screen::Dashboard(screenSettings());
     dash->build();
 }

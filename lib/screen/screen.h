@@ -1,7 +1,8 @@
 // The 800x480 dashboard, drawn with LVGL: the current walk's timer and steps
 // above today's ring toward the daily goal (with today's steps inside), speed,
 // incline, the pulse with its zone scale and its chart over the walk, and the
-// day strip; plus a plain message screen for boot and uploads.
+// day strip; plus a plain message screen for boot and uploads. A tap on the
+// ring switches today's count between minutes and hours and minutes.
 //
 // Gray means "no live signal", per source: the treadmill's values and the
 // pulse go gray independently.
@@ -11,7 +12,9 @@
 #include <lvgl.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "day_log.h"
@@ -83,7 +86,20 @@ class Dashboard {
     // Shows a full-screen message until the next update().
     void message(const char* title, const char* detail = "");
 
+    // Today's ring counts in hours and minutes ("1h 23m") instead of minutes
+    // ("83"). A tap on the ring switches between the two.
+    void setTodayInHours(bool on);
+    bool todayInHours() const { return todayInHours_; }
+    // Called after a tap switched the ring, e.g. to keep the choice.
+    void onTodayFormatChanged(std::function<void(bool inHours)> cb) { onTodayFormat_ = std::move(cb); }
+
    private:
+    struct TodayView {  // what the ring's centre shows, kept for a redraw on a tap
+        uint32_t totalS = 0;
+        uint32_t goalS = 1;
+        uint32_t steps = 0;
+        bool up = false;
+    };
     struct Run {  // a stretch of the pulse line in one color
         uint32_t color = 0;
         std::vector<lv_point_precise_t> points;
@@ -97,6 +113,8 @@ class Dashboard {
 
     void updateStatus(const Model& m);
     void updateRing(const Model& m);
+    void drawToday();
+    void placeTodayHours(uint32_t minutes, uint32_t digitColor, uint32_t unitColor);
     void updateNumbers(const Model& m);
     void updateChart(const Model& m);
     void updateAxis(uint32_t spanS);
@@ -105,6 +123,7 @@ class Dashboard {
     void updateDay(const Model& m);
     void updateWalkMinutes();
 
+    static void onRingTap(lv_event_t* e);
     static void onDrawChart(lv_event_t* e);
     static void onDrawDay(lv_event_t* e);
     void drawChart(lv_layer_t* layer) const;
@@ -124,6 +143,9 @@ class Dashboard {
     lv_obj_t* todayValue_ = nullptr;
     lv_obj_t* todayCaption_ = nullptr;
     lv_obj_t* todaySteps_ = nullptr;
+    // "1h 23m": hours, "h", minutes, "m"; digits big, letters small
+    lv_obj_t* todayParts_[4] = {};
+    std::string todayPartsText_;  // what they were last laid out for
     lv_obj_t* walkCaption_ = nullptr;
     lv_obj_t* walkValue_ = nullptr;
 
@@ -162,6 +184,11 @@ class Dashboard {
     bool dayBuilt_ = false;
     day::Today dayData_;
     bool dayTreadmillUp_ = false;
+
+    bool todayInHours_ = false;
+    bool hasToday_ = false;  // an update() came; until then the ring stays empty
+    TodayView today_;
+    std::function<void(bool)> onTodayFormat_;
 };
 
 }  // namespace screen

@@ -89,6 +89,7 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `src/treadmill_link.*` | Treadmill link on top of `ble_link` |
 | `src/heart_rate_link.*` | Heart rate strap link on top of `ble_link` |
 | `src/display.*` | The board's RGB panel and its link to LVGL |
+| `src/touch.*` | The touch controller (GT911), polled over I2C, as LVGL's pointer |
 | `src/storage.*` | The board's memory (LittleFS): walk logs, upload queue |
 | `src/net.*` | Wi-Fi on for a session, then off |
 | `src/uploader.*` | Uploads walks over HTTPS |

@@ -87,11 +87,15 @@ int main(int argc, char** argv) {
 
     screen::Dashboard dash(screenSettings());
     dash.build();
-    for (int i = 0; i < screen::demo::kSceneCount; ++i) {
-        dash.update(screen::demo::scene(i, dailyGoalSeconds()));
-        lv_refr_now(disp);
-        if (!writeBmp(dir + "/" + std::to_string(i) + "_" + screen::demo::sceneName(i) + ".bmp")) {
-            return 1;
+    // Each scene twice: today's ring in minutes, then in hours and minutes.
+    for (const bool inHours : {false, true}) {
+        dash.setTodayInHours(inHours);
+        for (int i = 0; i < screen::demo::kSceneCount; ++i) {
+            dash.update(screen::demo::scene(i, dailyGoalSeconds()));
+            lv_refr_now(disp);
+            const std::string name = std::to_string(i) + "_" + screen::demo::sceneName(i) +
+                                     (inHours ? "_hours" : "") + ".bmp";
+            if (!writeBmp(dir + "/" + name)) return 1;
         }
     }
     dash.message("Connecting to Wi-Fi…", "then uploading walks");

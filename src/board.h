@@ -16,4 +16,9 @@ constexpr int kB0 = 8, kB1 = 3, kB2 = 46, kB3 = 9, kB4 = 1;
 // Speaker amplifier over I2S (BCLK shares GPIO0 with the BOOT button)
 constexpr int kI2sBclk = 0, kI2sLrclk = 18, kI2sData = 17;
 
+// Capacitive touch controller (GT911) over I2C. Its interrupt line is wired to
+// GPIO18 as well, the speaker's word clock, so the controller is polled; the
+// line is only driven during the controller's reset (touch.cpp).
+constexpr int kTouchSda = 19, kTouchScl = 20, kTouchRst = 38, kTouchInt = 18;
+
 }  // namespace board

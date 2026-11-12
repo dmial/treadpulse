@@ -5,6 +5,7 @@
 #ifndef UI_DEMO
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <esp_heap_caps.h>
 
 #include <utility>
@@ -20,6 +21,7 @@
 #include "screen.h"
 #include "screen_settings.h"
 #include "storage.h"
+#include "touch.h"
 #include "treadmill_link.h"
 #include "uploader.h"
 #if __has_include("user_config.h")
@@ -104,6 +106,22 @@ day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds, uint32
 }
 
 void saveDay(const day::Walk* live) { storage.writeDayLog(String(dayLog.toCsv(live).c_str())); }
+
+// The ring's format, as last chosen by a tap, kept in NVS across power cuts.
+bool loadTodayInHours() {
+    Preferences prefs;
+    prefs.begin("screen", false);
+    const bool on = prefs.getBool("todayHours", false);
+    prefs.end();
+    return on;
+}
+
+void saveTodayInHours(bool on) {
+    Preferences prefs;
+    prefs.begin("screen", false);
+    prefs.putBool("todayHours", on);
+    prefs.end();
+}
 
 // Wi-Fi shares the radio with Bluetooth, so it is switched on only between
 // walks: set the clock, upload finished walks, switch off again.
@@ -262,7 +280,10 @@ void setup() {
     Serial.println("\n[boot] treadmill display v4");
 
     display::begin();
+    touch::begin();  // before the speaker: both use one pin (board.h)
     dash.build();
+    dash.setTodayInHours(loadTodayInHours());
+    dash.onTodayFormatChanged(saveTodayInHours);
     showMessage("Starting…");
 
     storage.begin();
