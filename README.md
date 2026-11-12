@@ -1,5 +1,7 @@
 # TreadPulse
 
+### Work while you walk? You need this.
+
 Shows and records your treadmill walks and heart rate without a single tap: no squinting at the treadmill's own display, often tucked under the desk, and no phone app to open and connect to a heart rate strap. Step on and walk.
 
 A big, glanceable second screen for your treadmill: walking time, a daily goal ring and live heart rate zones that beep when you cross your thresholds. Works with any treadmill that speaks the standard Bluetooth fitness machine protocol (FTMS).
@@ -14,12 +16,12 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 - **Pulse chart of the walk** with your two thresholds and where your pulse sat over the last 5 minutes.
 - **Beeps** when the pulse crosses a threshold, and when the treadmill link drops mid-walk.
 - **Day strip:** when you walked today, with each walk's minutes over it.
-- **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV.
+- **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV. A walk under a minute (an accidental start) leaves no trace.
 - **No stale numbers:** grey means no fresh data from the treadmill or the strap.
 
-| Above the interval threshold | Daily goal met | After the walk |
+| Above the interval threshold | Daily goal met, in hours and minutes | After the walk |
 |---|---|---|
-| ![Pulse above the interval threshold](docs/images/interval.png) | ![Daily goal met, second lap](docs/images/goal-met.png) | ![After the walk, two walks waiting for upload](docs/images/after-walk.png) |
+| ![Pulse above the interval threshold](docs/images/interval.png) | ![Daily goal met: second lap, today's total as 2h 31m](docs/images/goal-met.png) | ![After the walk, two walks waiting for upload](docs/images/after-walk.png) |
 
 <sub>Screens rendered by the built-in simulator with the example settings.</sub>
 
