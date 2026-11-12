@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <esp_heap_caps.h>
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -22,6 +23,7 @@
 #include "pulse_zones.h"
 #include "screen.h"
 #include "screen_settings.h"
+#include "stats.h"
 #include "storage.h"
 #include "touch.h"
 #include "treadmill_link.h"
@@ -87,6 +89,9 @@ uint32_t keptWalkSeconds = 0;  // the last kept walk's time, shown between walks
 uint32_t keptWalkSteps = 0;
 // Kept walks that ended before the clock was set, waiting for a date.
 std::vector<walk::Summary> undatedHistory;
+// The history's last weeks for the statistics page, and when it began.
+std::vector<archive::Entry> recentWalks;
+int64_t historyStart = 0;
 bool wasLinkUp = false;
 bool wasMoving = false;
 
@@ -117,6 +122,26 @@ day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds, uint32
 
 void saveDay(const day::Walk* live) { storage.writeDayLog(String(dayLog.toCsv(live).c_str())); }
 
+// Keeps a walk for the statistics page; walks older than its days are dropped.
+void rememberWalk(const archive::Entry& e) {
+    if (historyStart == 0 || e.startEpoch < historyStart) historyStart = e.startEpoch;
+    recentWalks.push_back(e);
+    int64_t newest = 0;
+    for (const archive::Entry& w : recentWalks) newest = std::max(newest, w.startEpoch);
+    const int64_t oldest = newest - static_cast<int64_t>(stats::kDays + 1) * 24 * 3600;
+    recentWalks.erase(std::remove_if(recentWalks.begin(), recentWalks.end(),
+                                     [oldest](const archive::Entry& w) { return w.startEpoch < oldest; }),
+                      recentWalks.end());
+}
+
+void loadHistory() {
+    storage.forEachHistoryLine([](const std::string& line) {
+        if (auto e = archive::parseEntry(line)) rememberWalk(*e);
+    });
+    Serial.printf("[history] %u walks of the last %d days in memory\n",
+                  static_cast<unsigned>(recentWalks.size()), stats::kDays);
+}
+
 // A kept walk goes to the history once it has a date: right away with a clock,
 // otherwise when the clock gets set (its uptime still dates it then). Without a
 // clock until the power goes, it is left out, as it is from the day ring.
@@ -124,7 +149,9 @@ void addToHistory(const walk::Summary& sum) {
     const int64_t start = clocksync::epochAtUptime(sum.startMs);
     const int64_t end = clocksync::epochAtUptime(sum.endMs);
     if (start > 0 && end > 0) {
-        storage.appendHistory(archive::fromSummary(sum, start, end));
+        const archive::Entry e = archive::fromSummary(sum, start, end);
+        storage.appendHistory(e);
+        rememberWalk(e);
     } else {
         undatedHistory.push_back(sum);
     }
@@ -291,6 +318,20 @@ void tick(uint32_t now) {
     m.bpm = hr.bpm;
     m.goalSeconds = dailyGoalSeconds();
     m.today = dayLog.today(epoch, liveWalk);
+    m.beltMoving = moving;
+    if (epoch > 0) {
+        // The walk in progress counts on the statistics page too, as on the ring.
+        archive::Entry liveEntry;
+        if (tracker.inSession()) {
+            liveEntry.startEpoch = clocksync::epochAtUptime(tracker.sessionStartMs());
+            liveEntry.walkSeconds = tracker.walkSeconds();
+            liveEntry.pulseSeconds = tracker.pulseSeconds();
+            liveEntry.zoneSeconds = tracker.zoneSeconds();
+        }
+        m.hasStats = true;
+        m.stats = stats::lastDays(recentWalks, tracker.inSession() ? &liveEntry : nullptr,
+                                  historyStart, epoch, userconfig::kDayResetHour, dailyGoalSeconds());
+    }
     m.columns = history.columns(screen::kChartColumns, screen::kChartMinSpanS);
     m.chartSpanS = history.spanSeconds(screen::kChartMinSpanS);
     dash.update(m);
@@ -333,6 +374,7 @@ void setup() {
     // Before any new walk can start, close the one a power cut left open.
     storage.recoverUnfinishedWalks();
     mergeHistorySeed();
+    loadHistory();
     beeper.begin();
     clocksync::begin();
     dayLog.loadCsv(storage.readDayLog().c_str());

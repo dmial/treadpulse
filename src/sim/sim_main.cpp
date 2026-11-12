@@ -9,6 +9,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -77,6 +79,10 @@ bool writeBmp(const std::string& path) {
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : ".";
 
+    // Days on the statistics page follow the local time zone, as on the board.
+    setenv("TZ", userconfig::kTimezone, 1);
+    tzset();
+
     lv_init();
     lv_tick_set_cb(tick);
     lv_display_t* disp = lv_display_create(screen::kWidth, screen::kHeight);
@@ -97,6 +103,19 @@ int main(int argc, char** argv) {
                                      (inHours ? "_hours" : "") + ".bmp";
             if (!writeBmp(dir + "/" + name)) return 1;
         }
+    }
+    // The statistics page, as after a swipe.
+    dash.setTodayInHours(false);
+    for (int i = 0; i < screen::demo::kStatsSceneCount; ++i) {
+        screen::Model m = screen::demo::scene(0, dailyGoalSeconds());
+        m.walking = false;
+        m.hasStats = true;
+        m.stats = screen::demo::statsScene(i, dailyGoalSeconds());
+        dash.update(m);
+        dash.showPage(screen::Dashboard::Page::Stats);
+        lv_refr_now(disp);
+        if (!writeBmp(dir + "/10_stats_" + std::to_string(i) + ".bmp")) return 1;
+        dash.showPage(screen::Dashboard::Page::Main);
     }
     dash.message("Connecting to Wi-Fi…", "then uploading walks");
     lv_refr_now(disp);

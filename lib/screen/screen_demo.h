@@ -15,5 +15,11 @@ const char* sceneName(int i);
 // Scene `i` (0..kSceneCount-1) for a daily goal of `goalSeconds`.
 Model scene(int i, uint32_t goalSeconds);
 
+// The statistics page on 2026-11-12, local days as the process time zone has
+// them: 0 = the history began yesterday (two days of walks), 1 = two full
+// weeks with every kind of day.
+constexpr int kStatsSceneCount = 2;
+stats::Window statsScene(int i, uint32_t goalSeconds);
+
 }  // namespace demo
 }  // namespace screen

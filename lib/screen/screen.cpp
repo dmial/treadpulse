@@ -37,6 +37,8 @@ constexpr uint32_t kNow = 0xef4444;  // the "now" line on the day strip, as in c
 constexpr uint32_t kLineLabel = 0x9ca3af;
 constexpr uint32_t kDayTrack = 0x151a20;
 constexpr uint32_t kDayPast = 0x232a33;
+constexpr uint32_t kUntracked = 0x2a3038;  // days before the history began
+constexpr uint32_t kStripeBg = 0x439aa5;   // between the stripes: zone 1 at 65 %, calm but still striped
 
 // Pulse by zone; rest (below zone 1) looks like zone 1. No gray here: gray
 // means "no signal".
@@ -96,6 +98,23 @@ constexpr int32_t kDayTextGap = 12;
 constexpr int32_t kWalkMinutesBaseline = kDayBarY - 1 - kDayTextGap;
 constexpr int32_t kHourBaseline = kDayBarY + kDayBarH - 1 + kDayTextGap + kCaptionCap;
 constexpr int32_t kWalkMinutesGap = 6;  // least room between two walks' minutes
+
+// Statistics page: the totals over the days on top (the average day, the days
+// on goal, minutes in zones 2 to 5), then a bar per day, weeks set apart.
+constexpr int32_t kStatsNumberBaseline = 104;
+constexpr int32_t kAverageX = 24, kGoalX = 200;  // the days on goal move right past a long average
+constexpr int32_t kStatsBlockGap = 24;
+constexpr int32_t kZonesX = 470, kZoneColW = 76, kZoneLineW = 62, kZoneLineH = 4;
+constexpr int32_t kZonesCaptionBaseline = 62, kZoneMinutesBaseline = 100, kZoneLineY = 108;
+constexpr int32_t kZoneNameBaseline = 130;
+constexpr int32_t kBarsTop = 168, kBarsBase = 404;  // the longest day reaches kBarsTop
+constexpr int32_t kSlotX = 30, kSlotW = 49, kWeekGap = 20, kBarW = 32;
+constexpr int32_t kBarMinutesGap = 8;  // a bar's top to its minutes' baseline
+constexpr int32_t kDayNumberBaseline = kBarsBase + 26, kWeekdayBaseline = kBarsBase + 48;
+constexpr int32_t kTodayLineY = kBarsBase + 55;
+constexpr int32_t kDividerTop = 150, kDividerBottom = kBarsBase + 52;
+// Room over the longest day; the goal line keeps its place until a day goes higher.
+constexpr uint32_t kBarsMinScaleS = 160 * 60, kBarsHeadroomS = 20 * 60;
 
 // Where a moment of the day falls on the strip, clamped to its ends.
 int32_t stripX(int sec, int startSec, int endSec) {
@@ -292,6 +311,98 @@ void drawPolyline(lv_layer_t* layer, const std::vector<lv_point_precise_t>& pts,
     lv_draw_line(layer, &d);
 }
 
+// Walking without the strap: diagonal stripes in zone 1's color, "pulse not
+// measured, most likely easy". One 6x6 tile, repeated over the area.
+constexpr int kTile = 6;
+uint16_t stripePixels[kTile * kTile];
+lv_image_dsc_t stripeTile;
+
+void makeStripeTile() {
+    const uint16_t on = lv_color_to_u16(rgb(kZoneColor[1])), off = lv_color_to_u16(rgb(kStripeBg));
+    for (int y = 0; y < kTile; ++y) {
+        for (int x = 0; x < kTile; ++x) stripePixels[y * kTile + x] = (x + y) % kTile < 2 ? on : off;
+    }
+    stripeTile.header.magic = LV_IMAGE_HEADER_MAGIC;
+    stripeTile.header.cf = LV_COLOR_FORMAT_RGB565;
+    stripeTile.header.w = kTile;
+    stripeTile.header.h = kTile;
+    stripeTile.header.stride = kTile * sizeof(uint16_t);
+    stripeTile.data_size = sizeof(stripePixels);
+    stripeTile.data = reinterpret_cast<const uint8_t*>(stripePixels);
+}
+
+void drawStripes(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
+    if (x2 < x1 || y2 < y1) return;
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = rgb(kStripeBg);
+    d.bg_opa = LV_OPA_COVER;
+    d.bg_image_src = &stripeTile;
+    d.bg_image_opa = LV_OPA_COVER;
+    d.bg_image_tiled = 1;
+    lv_area_t a = {x1, y1, x2, y2};
+    // LVGL draws the tiles whole, past the area's right and bottom edges, so the
+    // layer's clip area is narrowed to the area for this one rectangle.
+    const lv_area_t clip = layer->_clip_area;
+    const lv_area_t inside = {std::max(clip.x1, a.x1), std::max(clip.y1, a.y1),
+                              std::min(clip.x2, a.x2), std::min(clip.y2, a.y2)};
+    if (inside.x2 < inside.x1 || inside.y2 < inside.y1) return;
+    layer->_clip_area = inside;
+    lv_draw_rect(layer, &d, &a);
+    layer->_clip_area = clip;
+}
+
+// Whole minutes a day over `days`, rounded: a minute or two in a hard zone
+// says enough, tenths would add nothing.
+uint32_t minutesADay(uint32_t totalSeconds, int days) {
+    if (days <= 0) return 0;
+    return static_cast<uint32_t>(std::lround(totalSeconds / 60.0 / days));
+}
+
+// A zone's minutes inside its part of a day's bar, in the background's color,
+// when they fit; a part too small for them is too small to matter.
+void drawPartMinutes(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
+                     uint32_t minutes) {
+    constexpr int32_t kPad = 2;
+    if (minutes == 0 || y2 - y1 + 1 < kCaptionCap + 2 * kPad) return;
+    const std::string text = std::to_string(minutes);
+    const int32_t w = textWidth(text.c_str(), &geo_16);
+    if (w > x2 - x1 + 1 - 2 * kPad) return;
+    lv_draw_label_dsc_t d;
+    lv_draw_label_dsc_init(&d);
+    d.font = &geo_16;
+    d.color = rgb(kBg);
+    d.text = text.c_str();
+    d.text_local = 1;  // LVGL copies the text
+    d.align = LV_TEXT_ALIGN_CENTER;
+    // The digits' middle on the part's middle.
+    const int32_t baseline = (y1 + y2 + 1) / 2 + kCaptionCap / 2;
+    const int32_t top = baseline - (geo_16.line_height - geo_16.base_line);
+    lv_area_t a = {x1, top, x2, top + geo_16.line_height - 1};
+    lv_draw_label(layer, &d, &a);
+}
+
+// A day's bar from the bottom up: walking without the strap, then the pulse
+// zones from easy to hard (below zone 1 joins zone 1, as on the dashboard).
+struct BarPart {
+    uint32_t seconds;
+    int zone;  // -1: without the strap
+};
+
+std::vector<BarPart> barParts(const stats::Day& d) {
+    std::vector<BarPart> parts;
+    parts.push_back({d.walkSeconds > d.pulseSeconds ? d.walkSeconds - d.pulseSeconds : 0, -1});
+    parts.push_back({d.zoneSeconds[0] + d.zoneSeconds[1], 1});
+    for (int z = 2; z <= pulse::kZoneCount; ++z) parts.push_back({d.zoneSeconds[z], z});
+    return parts;
+}
+
+uint32_t barSeconds(const stats::Day& d) {
+    uint32_t total = 0;
+    for (const BarPart& p : barParts(d)) total += p.seconds;
+    return total;
+}
+
 }  // namespace
 
 std::string walkCount(int n) {
@@ -308,9 +419,15 @@ void Dashboard::build() {
     buildChart();
     buildDay();
 
+    buildStats();
+
     msg_ = makeScreen();
     msgTitle_ = makeLabel(msg_, &geo_26, kWhite, Align::Center, kWidth / 2, 232, 760);
     msgDetail_ = makeLabel(msg_, &geo_18, kMuted, Align::Center, kWidth / 2, 270, 760);
+
+    // A sideways swipe anywhere switches between the dashboard and the statistics.
+    lv_obj_add_event_cb(dash_, onSwipe, LV_EVENT_GESTURE, this);
+    lv_obj_add_event_cb(stats_, onSwipe, LV_EVENT_GESTURE, this);
 
     lv_screen_load(dash_);
 }
@@ -446,15 +563,87 @@ void Dashboard::buildDay() {
     }
 }
 
+void Dashboard::buildStats() {
+    makeStripeTile();
+    stats_ = makeScreen();
+    // The status line as on the dashboard, with the days covered on the left.
+    statsSince_ = makeLabel(stats_, &geo_18, kMuted, Align::Left, 20, kStatusBaseline, 300);
+    statsClock_ = makeLabel(stats_, &geo_18, kMuted, Align::Center, kWidth / 2, kStatusBaseline, 120);
+    statsStatus_ = makeLabel(stats_, &geo_18, kMuted, Align::Right, kWidth - 20, kStatusBaseline, 300);
+    statsWaiting_ = makeLabel(stats_, &geo_18, kMuted, Align::Center, kWidth / 2, 250, 600,
+                              "Waiting for the clock…");
+
+    statsBody_ = makeBox(stats_);
+    lv_obj_remove_style_all(statsBody_);
+    lv_obj_set_size(statsBody_, kWidth, kHeight);
+    lv_obj_t* b = statsBody_;
+
+    average_ = makeLabel(b, &geo_44, kWhite, Align::Left, kAverageX, kStatsNumberBaseline, 150);
+    // Two-line captions beside the numbers, ending on their baseline.
+    averageCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kAverageX, kStatsNumberBaseline, 150,
+                                "min a day\non average");
+    goalDays_ = makeLabel(b, &geo_44, kWhite, Align::Left, kGoalX, kStatsNumberBaseline, 100);
+    goalOf_ = makeLabel(b, &geo_44, kMuted, Align::Left, kGoalX, kStatsNumberBaseline, 120);
+    goalCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kGoalX, kStatsNumberBaseline, 150,
+                             "days\non goal");
+    zonesCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kZonesX, kZonesCaptionBaseline, 320,
+                              "min a day by pulse zone, on average");
+    for (int i = 0; i < 4; ++i) {
+        const int32_t x = kZonesX + i * kZoneColW;
+        zoneMinutes_[i] = makeLabel(b, &geo_26, kOffDim, Align::Left, x, kZoneMinutesBaseline, kZoneColW);
+        zoneLines_[i] = makeBox(b);
+        lv_obj_set_pos(zoneLines_[i], x, kZoneLineY);
+        lv_obj_set_size(zoneLines_[i], kZoneLineW, kZoneLineH);
+        lv_obj_set_style_radius(zoneLines_[i], kZoneLineH / 2, 0);
+        zoneNames_[i] = makeLabel(b, &geo_16, kOffDim, Align::Left, x, kZoneNameBaseline, kZoneColW,
+                                  ("zone " + std::to_string(i + 2)).c_str());
+    }
+
+    bars_ = makeBox(b);
+    lv_obj_set_pos(bars_, 0, kDividerTop);
+    lv_obj_set_size(bars_, kWidth, kHeight - kDividerTop);
+    lv_obj_add_event_cb(bars_, onDrawStats, LV_EVENT_DRAW_MAIN, this);
+    goalLabel_ = makeLabel(b, &geo_16, kLineLabel, Align::Left, 0, kBarsTop, 50);
+    for (int i = 0; i < stats::kDays; ++i) {
+        lv_obj_t* minutes = makeLabel(b, &geo_16, kWhite, Align::Center, 0, kBarsBase, kSlotW);
+        lv_obj_set_style_bg_color(minutes, rgb(kBg), 0);
+        lv_obj_set_style_bg_opa(minutes, LV_OPA_COVER, 0);
+        barMinutes_.push_back(minutes);
+        dayNumbers_.push_back(makeLabel(b, &geo_16, kMuted, Align::Center, 0, kDayNumberBaseline, kSlotW));
+        weekdays_.push_back(makeLabel(b, &geo_16, kOffDim, Align::Center, 0, kWeekdayBaseline, kSlotW));
+    }
+}
+
 // ---------------------------------------------------------------- update
 
 void Dashboard::update(const Model& m) {
-    if (lv_screen_active() != dash_) lv_screen_load(dash_);
+    // The belt starting brings the dashboard back from the statistics.
+    if (m.beltMoving && !wasMoving_) page_ = Page::Main;
+    wasMoving_ = m.beltMoving;
+    loadPage();
     updateStatus(m);
     updateRing(m);
     updateNumbers(m);
     updateChart(m);
     updateDay(m);
+    updateStats(m);
+}
+
+void Dashboard::loadPage() {
+    lv_obj_t* page = page_ == Page::Stats ? stats_ : dash_;
+    if (lv_screen_active() != page) lv_screen_load(page);
+}
+
+void Dashboard::showPage(Page p) {
+    page_ = p;
+    if (lv_screen_active() != msg_) loadPage();  // a message stays until the next update()
+}
+
+void Dashboard::onSwipe(lv_event_t* e) {
+    auto* self = static_cast<Dashboard*>(lv_event_get_user_data(e));
+    const lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
+    if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
+    self->showPage(self->page_ == Page::Main ? Page::Stats : Page::Main);
 }
 
 void Dashboard::message(const char* title, const char* detail) {
@@ -464,21 +653,28 @@ void Dashboard::message(const char* title, const char* detail) {
 }
 
 void Dashboard::updateStatus(const Model& m) {
+    std::string text;
+    uint32_t color = kMuted;
     switch (m.upload) {
         case Upload::Done:
-            setText(status_, "all uploaded");
-            setTextColor(status_, kMuted);
+            text = "all uploaded";
             break;
         case Upload::Pending:
-            setText(status_, "to upload: " + std::to_string(m.pendingWalks));
-            setTextColor(status_, kPending);
+            text = "to upload: " + std::to_string(m.pendingWalks);
+            color = kPending;
             break;
         case Upload::StorageError:
-            setText(status_, "storage error");
-            setTextColor(status_, kError);
+            text = "storage error";
+            color = kError;
             break;
     }
+    // The same status line on both pages.
+    for (lv_obj_t* l : {status_, statsStatus_}) {
+        setText(l, text);
+        setTextColor(l, color);
+    }
     setText(clock_, m.clock);
+    setText(statsClock_, m.clock);
 }
 
 void Dashboard::updateRing(const Model& m) {
@@ -521,6 +717,8 @@ void Dashboard::setTodayInHours(bool on) {
 }
 
 void Dashboard::onRingTap(lv_event_t* e) {
+    // A swipe that started on the ring switches the page, not the ring.
+    if (lv_indev_get_gesture_dir(lv_indev_active()) != LV_DIR_NONE) return;
     auto* self = static_cast<Dashboard*>(lv_event_get_user_data(e));
     self->setTodayInHours(!self->todayInHours_);
     if (self->onTodayFormat_) self->onTodayFormat_(self->todayInHours_);
@@ -865,6 +1063,107 @@ void Dashboard::updateWalkMinutes() {
     }
 }
 
+void Dashboard::updateStats(const Model& m) {
+    setVisible(statsWaiting_, !m.hasStats);
+    setVisible(statsBody_, m.hasStats);
+    if (!m.hasStats) {
+        setText(statsSince_, "");
+        hasStatsData_ = false;
+        return;
+    }
+    const uint32_t goal = std::max<uint32_t>(m.goalSeconds, 1);
+    if (hasStatsData_ && m.stats == statsData_ && goal == statsGoalS_) return;
+    statsData_ = m.stats;
+    statsGoalS_ = goal;
+    hasStatsData_ = true;
+    layoutStats();
+    lv_obj_invalidate(bars_);
+}
+
+// Left edge of day i's bar: a gap before each Monday sets the weeks apart.
+int32_t Dashboard::slotX(int i) const {
+    int weeks = 0;
+    for (int j = 1; j <= i; ++j) {
+        if (statsData_.days[j].weekday == 0) ++weeks;
+    }
+    return kSlotX + i * kSlotW + weeks * kWeekGap;
+}
+
+void Dashboard::layoutStats() {
+    const stats::Window& w = statsData_;
+    const int n = static_cast<int>(w.days.size());
+    setText(statsSince_, w.firstKey ? "since " + stats::shortDate(w.firstKey)
+                                    : "last " + std::to_string(n) + " days");
+
+    // "93 min a day on average", "3/7 days on goal": the captions follow the
+    // numbers, their second line on the numbers' baseline.
+    const int32_t captionBaseline = kStatsNumberBaseline - geo_16.line_height;
+    const std::string avg = std::to_string(w.averageSeconds / 60);
+    setText(average_, avg);
+    const int32_t captionX = kAverageX + textWidth(avg.c_str(), &geo_44) + 10;
+    place(averageCaption_, Align::Left, captionX, captionBaseline, 150);
+    const int32_t goalX =
+        std::max(kGoalX, captionX + textWidth(lv_label_get_text(averageCaption_), &geo_16) + kStatsBlockGap);
+    const std::string got = std::to_string(w.goalDays), of = "/" + std::to_string(w.trackedDays);
+    setText(goalDays_, got);
+    place(goalDays_, Align::Left, goalX, kStatsNumberBaseline, 100);
+    setText(goalOf_, of);
+    const int32_t ofX = goalX + textWidth(got.c_str(), &geo_44) + 2;
+    place(goalOf_, Align::Left, ofX, kStatsNumberBaseline, 120);
+    place(goalCaption_, Align::Left, ofX + textWidth(of.c_str(), &geo_44) + 10, captionBaseline, 150);
+
+    // Minutes a day in zones 2..5 on average, over the same days as the average
+    // day, so they compare with it; in their colors, a zone under half a
+    // minute a day in gray.
+    for (int i = 0; i < 4; ++i) {
+        const int z = i + 2;
+        const uint32_t minutes = minutesADay(w.zoneSeconds[z], w.trackedDays);
+        const bool any = minutes > 0;
+        setText(zoneMinutes_[i], std::to_string(minutes));
+        setTextColor(zoneMinutes_[i], any ? kZoneColor[z] : kOffDim);
+        setBg(zoneLines_[i], any ? kZoneColor[z] : kOffDim, LV_OPA_COVER);
+        setTextColor(zoneNames_[i], any ? kLineLabel : kOffDim);
+    }
+
+    uint32_t longest = 0;
+    for (const stats::Day& d : w.days) longest = std::max(longest, barSeconds(d));
+    barsScaleS_ = std::max(kBarsMinScaleS, longest + kBarsHeadroomS);
+    auto barTop = [&](uint32_t seconds) {
+        return kBarsBase - static_cast<int32_t>(uint64_t(seconds) * (kBarsBase - kBarsTop) / barsScaleS_);
+    };
+
+    const int32_t right = slotX(n - 1) + kBarW;
+    setText(goalLabel_, hoursMinutes(statsGoalS_ / 60, true));
+    place(goalLabel_, Align::Left, right + 6, barTop(statsGoalS_) + 5, 50);
+
+    static const char kWeekdays[] = "MTWTFSS";
+    for (int i = 0; i < stats::kDays; ++i) {
+        const bool used = i < n;
+        setVisible(dayNumbers_[i], used);
+        setVisible(weekdays_[i], used);
+        setVisible(barMinutes_[i], used && w.days[i].tracked);
+        if (!used) continue;
+        const stats::Day& d = w.days[i];
+        const bool today = i == n - 1;
+        const int32_t cx = slotX(i) + kBarW / 2;
+        setText(dayNumbers_[i], std::to_string(d.dayOfMonth));
+        setTextColor(dayNumbers_[i], today ? kWhite : d.tracked ? kMuted : kUntracked);
+        place(dayNumbers_[i], Align::Center, cx, kDayNumberBaseline, kSlotW);
+        setText(weekdays_[i], std::string(1, kWeekdays[d.weekday]));
+        setTextColor(weekdays_[i], today ? kLineLabel : d.tracked ? kOffDim : kUntracked);
+        place(weekdays_[i], Align::Center, cx, kWeekdayBaseline, kSlotW);
+        if (!d.tracked) continue;
+        // A day without walking gets a dash, so it does not read as missing.
+        const bool walked = d.walkSeconds > 0;
+        const std::string minutes = walked ? std::to_string(d.walkSeconds / 60) : "\u2014";
+        setText(barMinutes_[i], minutes);
+        setTextColor(barMinutes_[i], walked ? kWhite : kMuted);
+        // Just as wide as the number: its background breaks the goal line under it.
+        place(barMinutes_[i], Align::Center, cx, barTop(barSeconds(d)) - kBarMinutesGap,
+              textWidth(minutes.c_str(), &geo_16) + 8);
+    }
+}
+
 // ---------------------------------------------------------------- drawing
 
 void Dashboard::onDrawChart(lv_event_t* e) {
@@ -873,6 +1172,62 @@ void Dashboard::onDrawChart(lv_event_t* e) {
 
 void Dashboard::onDrawDay(lv_event_t* e) {
     static_cast<const Dashboard*>(lv_event_get_user_data(e))->drawDay(lv_event_get_layer(e));
+}
+
+void Dashboard::onDrawStats(lv_event_t* e) {
+    static_cast<const Dashboard*>(lv_event_get_user_data(e))->drawStats(lv_event_get_layer(e));
+}
+
+void Dashboard::drawStats(lv_layer_t* layer) const {
+    if (!hasStatsData_ || statsData_.days.empty()) return;
+    const std::vector<stats::Day>& days = statsData_.days;
+    const int n = static_cast<int>(days.size());
+    const int32_t left = slotX(0), right = slotX(n - 1) + kBarW;
+    auto heightOf = [&](uint32_t seconds) {
+        return static_cast<int32_t>(uint64_t(seconds) * (kBarsBase - kBarsTop) / barsScaleS_);
+    };
+
+    // A thin line between the weeks, midway through the gap before Monday.
+    for (int i = 1; i < n; ++i) {
+        if (days[i].weekday != 0) continue;
+        const int32_t x = slotX(i) - (kSlotW - kBarW + kWeekGap) / 2;
+        drawRect(layer, x, kDividerTop, x + 1, kDividerBottom, kRingTrack);
+    }
+    drawRect(layer, left, kBarsBase, right - 1, kBarsBase, kRingTrack);
+
+    // The goal, dashed, behind the bars.
+    lv_draw_line_dsc_t goal;
+    lv_draw_line_dsc_init(&goal);
+    goal.color = rgb(kLineLabel);
+    goal.width = 2;
+    goal.dash_width = 6;
+    goal.dash_gap = 6;
+    const int32_t goalY = kBarsBase - heightOf(statsGoalS_);
+    goal.p1 = {left, goalY};
+    goal.p2 = {right, goalY};
+    lv_draw_line(layer, &goal);
+
+    for (int i = 0; i < n; ++i) {
+        if (!days[i].tracked) continue;
+        const int32_t x1 = slotX(i), x2 = x1 + kBarW - 1;
+        uint32_t below = 0;
+        for (const BarPart& p : barParts(days[i])) {
+            if (p.seconds == 0) continue;
+            const int32_t bottom = kBarsBase - 1 - heightOf(below);
+            below += p.seconds;
+            const int32_t top = kBarsBase - heightOf(below);
+            if (p.zone < 0) {
+                drawStripes(layer, x1, top, x2, bottom);
+            } else {
+                drawRect(layer, x1, top, x2, bottom, kZoneColor[p.zone]);
+                if (p.zone >= 2) drawPartMinutes(layer, x1, top, x2, bottom, p.seconds / 60);
+            }
+        }
+    }
+
+    // Today, underlined as "now" is on the day strip.
+    const int32_t t = slotX(n - 1);
+    drawRect(layer, t, kTodayLineY, t + kBarW - 1, kTodayLineY + 1, kNow);
 }
 
 void Dashboard::drawChart(lv_layer_t* layer) const {

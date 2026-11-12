@@ -16,7 +16,8 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 - **Pulse chart of the walk** with your two thresholds and where your pulse sat over the last 5 minutes.
 - **Beeps** when the pulse crosses a threshold, and when the treadmill link drops mid-walk.
 - **Day strip:** when you walked today, with each walk's minutes over it.
-- **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV. A walk under a minute (an accidental start) leaves no trace.
+- **The last two weeks:** swipe sideways for a bar per day, split by pulse zone (striped where you walked without the strap), with weeks set apart, your average day, the days on goal and the average day's minutes in zones 2 to 5 (inside the bars, each day's). Kept on the board, so it works without the cloud; the dashboard comes back when the belt starts.
+- **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV; one line per walk also stays on the board for good. A walk under a minute (an accidental start) leaves no trace.
 - **No stale numbers:** grey means no fresh data from the treadmill or the strap.
 
 | Above the interval threshold | Daily goal met, in hours and minutes | After the walk |

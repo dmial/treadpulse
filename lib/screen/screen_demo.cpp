@@ -147,5 +147,41 @@ Model scene(int i, uint32_t goalSeconds) {
     return m;
 }
 
+stats::Window statsScene(int i, uint32_t goalSeconds) {
+    constexpr int64_t kNov12 = 1794441600;  // 2026-11-12T00:00:00Z
+    constexpr int64_t kDay = 24 * 3600;
+    std::vector<archive::Entry> walks;
+    // A walk at noon `daysAgo` days before the 12th.
+    auto walk = [&](int daysAgo, uint32_t minutes, uint32_t pulseMin = 0,
+                    std::array<uint32_t, pulse::kZoneCount + 1> zoneMin = {}) {
+        archive::Entry e;
+        e.startEpoch = kNov12 - daysAgo * kDay + 12 * 3600;
+        e.endEpoch = e.startEpoch + minutes * 60;
+        e.walkSeconds = minutes * 60;
+        e.pulseSeconds = pulseMin * 60;
+        for (size_t z = 0; z < zoneMin.size(); ++z) e.zoneSeconds[z] = zoneMin[z] * 60;
+        walks.push_back(e);
+    };
+    int64_t start;
+    if (i == 0) {  // the history began yesterday
+        walk(1, 45);
+        walk(1, 38, 38, {2, 12, 24, 0, 0, 0});
+        walk(0, 70);
+        walk(0, 30, 30, {16, 14, 0, 0, 0, 0});
+        start = kNov12 - kDay;
+    } else {
+        const uint32_t plain[14] = {95, 130, 0, 110, 125, 60, 140, 118, 0, 85, 150, 122, 45, 70};
+        for (int d = 0; d < 14; ++d) {
+            if (plain[d] > 0) walk(13 - d, plain[d]);
+        }
+        walk(10, 45, 45, {2, 8, 35, 0, 0, 0});    // base, zone 2
+        walk(7, 50, 50, {1, 6, 30, 10, 3, 0});    // drifting into zone 3
+        walk(3, 40, 40, {1, 5, 20, 6, 4, 4});     // intervals
+        walk(0, 35, 35, {1, 4, 28, 2, 0, 0});
+        start = kNov12 - 60 * kDay;
+    }
+    return stats::lastDays(walks, nullptr, start, kNov12 + 21 * 3600 + 40 * 60, 0, goalSeconds);
+}
+
 }  // namespace demo
 }  // namespace screen

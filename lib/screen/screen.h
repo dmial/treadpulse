@@ -4,6 +4,10 @@
 // day strip; plus a plain message screen for boot and uploads. A tap on the
 // ring switches today's count between minutes and hours and minutes.
 //
+// A second page, reached by a sideways swipe, shows the last two weeks: each
+// day's walking split by pulse zone, and totals over them. The dashboard comes
+// back by itself when the belt starts moving.
+//
 // Gray means "no live signal", per source: the treadmill's values and the
 // pulse go gray independently.
 // No Arduino dependencies: the same code renders on the computer (env:sim).
@@ -20,6 +24,7 @@
 #include "day_log.h"
 #include "pulse_level.h"
 #include "pulse_zones.h"
+#include "stats.h"
 #include "walk_history.h"
 
 namespace screen {
@@ -50,6 +55,7 @@ struct Model {
     uint32_t walkSeconds = 0;  // the current walk, or the last one
     uint32_t walkSteps = 0;    // of the same walk
     bool walking = false;      // a walk is on; otherwise the walk shown is the last one
+    bool beltMoving = false;   // the belt moves: the dashboard comes back from the statistics
 
     // From the chest strap; "---" and gray while there is no fresh pulse
     bool pulseUp = false;
@@ -62,6 +68,10 @@ struct Model {
     // The current walk in kChartColumns columns (empty: nothing to draw)
     std::vector<walk::Column> columns;
     uint32_t chartSpanS = kChartMinSpanS;
+
+    // The statistics page; without a clock there are no days to show
+    bool hasStats = false;
+    stats::Window stats;
 };
 
 struct Settings {
@@ -77,6 +87,8 @@ struct Settings {
 
 class Dashboard {
    public:
+    enum class Page { Main, Stats };
+
     explicit Dashboard(const Settings& s) : s_(s) {}
 
     // Creates the screens on the default LVGL display. Call once after lv_init().
@@ -92,6 +104,10 @@ class Dashboard {
     bool todayInHours() const { return todayInHours_; }
     // Called after a tap switched the ring, e.g. to keep the choice.
     void onTodayFormatChanged(std::function<void(bool inHours)> cb) { onTodayFormat_ = std::move(cb); }
+
+    // The page update() shows; a sideways swipe switches it.
+    void showPage(Page p);
+    Page page() const { return page_; }
 
    private:
     struct TodayView {  // what the ring's centre shows, kept for a redraw on a tap
@@ -110,6 +126,7 @@ class Dashboard {
     void buildNumbers();
     void buildChart();
     void buildDay();
+    void buildStats();
 
     void updateStatus(const Model& m);
     void updateRing(const Model& m);
@@ -122,8 +139,15 @@ class Dashboard {
     bool placeLevelCaption(const std::vector<float>& bpm);
     void updateDay(const Model& m);
     void updateWalkMinutes();
+    void updateStats(const Model& m);
+    void layoutStats();
+    void loadPage();
 
     static void onRingTap(lv_event_t* e);
+    static void onSwipe(lv_event_t* e);
+    static void onDrawStats(lv_event_t* e);
+    void drawStats(lv_layer_t* layer) const;
+    int32_t slotX(int i) const;
     static void onDrawChart(lv_event_t* e);
     static void onDrawDay(lv_event_t* e);
     void drawChart(lv_layer_t* layer) const;
@@ -167,6 +191,34 @@ class Dashboard {
 
     lv_obj_t* msgTitle_ = nullptr;
     lv_obj_t* msgDetail_ = nullptr;
+
+    // The statistics page
+    lv_obj_t* stats_ = nullptr;
+    lv_obj_t* statsStatus_ = nullptr;
+    lv_obj_t* statsClock_ = nullptr;
+    lv_obj_t* statsSince_ = nullptr;
+    lv_obj_t* statsWaiting_ = nullptr;  // no clock yet
+    lv_obj_t* statsBody_ = nullptr;     // everything else, hidden without a clock
+    lv_obj_t* average_ = nullptr;
+    lv_obj_t* averageCaption_ = nullptr;
+    lv_obj_t* goalDays_ = nullptr;
+    lv_obj_t* goalOf_ = nullptr;  // "/14", gray
+    lv_obj_t* goalCaption_ = nullptr;
+    lv_obj_t* zonesCaption_ = nullptr;
+    lv_obj_t* zoneMinutes_[4] = {};  // zones 2..5
+    lv_obj_t* zoneLines_[4] = {};
+    lv_obj_t* zoneNames_[4] = {};
+    lv_obj_t* bars_ = nullptr;
+    lv_obj_t* goalLabel_ = nullptr;  // "2h" at the goal line
+    std::vector<lv_obj_t*> barMinutes_;
+    std::vector<lv_obj_t*> dayNumbers_;
+    std::vector<lv_obj_t*> weekdays_;
+    stats::Window statsData_;
+    bool hasStatsData_ = false;
+    uint32_t statsGoalS_ = 1;
+    uint32_t barsScaleS_ = 1;  // seconds at the top of the bars' area
+    Page page_ = Page::Main;
+    bool wasMoving_ = false;
 
     // What the chart and the day strip draw, kept from the last update(); the
     // chart is rebuilt (and redrawn) only when its input changes.

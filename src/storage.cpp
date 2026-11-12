@@ -346,6 +346,14 @@ void Storage::appendHistory(const archive::Entry& e) {
 
 String Storage::readHistory() { return readFile(kHistory); }
 
+void Storage::forEachHistoryLine(const std::function<void(const std::string&)>& line) {
+    if (!ok_ || !LittleFS.exists(kHistory)) return;
+    File f = LittleFS.open(kHistory, FILE_READ);
+    if (!f) return;
+    while (f.available()) line(f.readStringUntil('\n').c_str());
+    f.close();
+}
+
 void Storage::writeHistory(const String& csv) {
     if (ok_ && !replaceFile(kHistory, kHistoryTmp, csv)) Serial.println("[fs] cannot save the history");
 }

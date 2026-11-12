@@ -16,6 +16,8 @@
 #include <Arduino.h>
 #include <FS.h>
 
+#include <functional>
+#include <string>
 #include <vector>
 
 #include "archive.h"
@@ -62,6 +64,8 @@ class Storage {
     // room for a new walk deletes only unsent walk folders, never this file.
     void appendHistory(const archive::Entry& e);
     String readHistory();
+    // Calls `line` for each line of the history, without reading it all at once.
+    void forEachHistoryLine(const std::function<void(const std::string&)>& line);
     // Replaces the whole file, via a temporary one (e.g. after a merge).
     void writeHistory(const String& csv);
 

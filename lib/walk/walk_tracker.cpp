@@ -262,13 +262,19 @@ void WalkTracker::closeSession(Events& ev) {
     sum.averageHeartRateBpm = walkHeartRate_.average();
     sum.maxHeartRateBpm = walkHeartRate_.maximum();
     sum.steps = steps();
-    sum.pulseSeconds = roundedSeconds(pulseMs_);
-    for (size_t z = 0; z < zoneMs_.size(); ++z) sum.zoneSeconds[z] = roundedSeconds(zoneMs_[z]);
+    sum.pulseSeconds = pulseSeconds();
+    sum.zoneSeconds = zoneSeconds();
     ev.sessionEnded = sum;
 
     inSession_ = false;
     pending_.reset();
     stopReportMs_.reset();
+}
+
+std::array<uint32_t, pulse::kZoneCount + 1> WalkTracker::zoneSeconds() const {
+    std::array<uint32_t, pulse::kZoneCount + 1> out{};
+    for (size_t z = 0; z < zoneMs_.size(); ++z) out[z] = roundedSeconds(zoneMs_[z]);
+    return out;
 }
 
 }  // namespace walk

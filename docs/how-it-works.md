@@ -57,6 +57,8 @@ Each line: start, end, walking time, steps, distance, elevation gain, walking se
 
 A walk that ends before the board knows the time gets its line once the clock is set; if the power goes before that, it has none (just as it is missing from the day ring). A walk recovered after a power loss gets its line at the next power-on.
 
+**The statistics page** (a sideways swipe on the dashboard) shows the last 14 days from this history plus the walk in progress. A walk counts on the day it started, as on the day ring. The average day, its minutes by pulse zone and the days on goal count the days since the history began, today included; days before it show no bar, a day without walking shows a dash. The dashboard comes back when the belt starts.
+
 **Walks from before the history.** Their per-second logs are in the cloud, and a computer-side tool turns them into history lines with the same code the board runs:
 
 1. Download each walk's `samples.csv` from the bucket into a folder per walk: `<dir>/0042_2026-11-10T0815Z/samples.csv`.
@@ -103,6 +105,7 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `lib/pulse/` | Heart rate zones, the hint to the next threshold, threshold beeps |
 | `lib/day/` | Today's total and the walks on the day strip |
 | `lib/archive/` | The history: one line per kept walk, read back and merged. No Arduino dependencies |
+| `lib/stats/` | The last two weeks for the statistics page: days from the history, totals over them. No Arduino dependencies |
 | `lib/screen/` | The dashboard (LVGL): layout, pulse chart, ring, day strip; Geologica fonts (`tools/make_fonts.sh`). No Arduino dependencies: the same code renders on a computer (`pio run -e sim`) |
 | `src/ble_link.*` | Bluetooth: scanning, connecting, subscribing, reconnecting (NimBLE) |
 | `src/treadmill_link.*` | Treadmill link on top of `ble_link` |

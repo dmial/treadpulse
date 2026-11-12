@@ -27,7 +27,7 @@ mkdir -p "$OUT"
 gen geo_16 16 --range "$TEXT"
 gen geo_18 18 --range "$TEXT"
 gen geo_26 26 --range "$TEXT"
-gen geo_44 44 --symbols "0123456789:"
+gen geo_44 44 --symbols "0123456789:/"
 gen geo_60 60 --symbols "0123456789.:-"
 gen geo_80 80 --symbols "0123456789:-"
 

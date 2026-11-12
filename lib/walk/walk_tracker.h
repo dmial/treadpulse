@@ -147,6 +147,9 @@ class WalkTracker {
     float distanceM() const { return distanceM_; }
     // Steps of the current session, or of the last one after it ended.
     uint32_t steps() const { return static_cast<uint32_t>(steps_ + 0.5f); }
+    // Pulse time of the current session so far, as Summary has it at the end.
+    uint32_t pulseSeconds() const { return roundedSeconds(pulseMs_); }
+    std::array<uint32_t, pulse::kZoneCount + 1> zoneSeconds() const;
     Activity lastActivity() const { return lastActivity_; }
     uint32_t sessionStartMs() const { return sessionStartMs_; }
 
