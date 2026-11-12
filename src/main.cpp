@@ -9,7 +9,9 @@
 #include <esp_heap_caps.h>
 
 #include <utility>
+#include <vector>
 
+#include "archive.h"
 #include "beeper.h"
 #include "ble_link.h"
 #include "clock_sync.h"
@@ -32,6 +34,12 @@
 #include "walk_history.h"
 #include "walk_settings.h"
 #include "walk_tracker.h"
+// Walks from before the board kept a history, made from their cloud copies by
+// env:backfill (docs/how-it-works.md, History). Personal data: out of git.
+#if __has_include("history_seed.h")
+#include "history_seed.h"
+#define HAS_HISTORY_SEED 1
+#endif
 
 namespace {
 
@@ -77,6 +85,8 @@ uint32_t netDueMs = 0;
 uint32_t lastStopCount = 0;  // the treadmill's stop reports already passed on
 uint32_t keptWalkSeconds = 0;  // the last kept walk's time, shown between walks
 uint32_t keptWalkSteps = 0;
+// Kept walks that ended before the clock was set, waiting for a date.
+std::vector<walk::Summary> undatedHistory;
 bool wasLinkUp = false;
 bool wasMoving = false;
 
@@ -106,6 +116,37 @@ day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds, uint32
 }
 
 void saveDay(const day::Walk* live) { storage.writeDayLog(String(dayLog.toCsv(live).c_str())); }
+
+// A kept walk goes to the history once it has a date: right away with a clock,
+// otherwise when the clock gets set (its uptime still dates it then). Without a
+// clock until the power goes, it is left out, as it is from the day ring.
+void addToHistory(const walk::Summary& sum) {
+    const int64_t start = clocksync::epochAtUptime(sum.startMs);
+    const int64_t end = clocksync::epochAtUptime(sum.endMs);
+    if (start > 0 && end > 0) {
+        storage.appendHistory(archive::fromSummary(sum, start, end));
+    } else {
+        undatedHistory.push_back(sum);
+    }
+}
+
+void dateHistory() {
+    if (undatedHistory.empty() || !clocksync::isSynced()) return;
+    std::vector<walk::Summary> walks;
+    walks.swap(undatedHistory);
+    for (const walk::Summary& sum : walks) addToHistory(sum);
+}
+
+// Adds the seed's walks the history lacks; the next boots find them there.
+void mergeHistorySeed() {
+#ifdef HAS_HISTORY_SEED
+    std::vector<archive::Entry> entries = archive::parseAll(storage.readHistory().c_str());
+    const int added = archive::merge(entries, archive::parseAll(historyseed::kCsv));
+    if (added > 0) storage.writeHistory(String(archive::formatAll(entries).c_str()));
+    Serial.printf("[history] %d walks added from the seed, %u in all\n", added,
+                  static_cast<unsigned>(entries.size()));
+#endif
+}
 
 // The ring's format, as last chosen by a tap, kept in NVS across power cuts.
 bool loadTodayInHours() {
@@ -207,6 +248,7 @@ void tick(uint32_t now) {
         const walk::Summary& sum = *ev.sessionEnded;
         if (sum.worthKeeping()) {
             storage.finishWalk(sum);
+            addToHistory(sum);
             // The walk ended after the belt stopped (seconds after a reported stop,
             // minutes otherwise); that tail is not walking.
             history.trimTo((sum.endMs - sum.startMs) / 1000 + 1);
@@ -225,6 +267,7 @@ void tick(uint32_t now) {
         saveDay(nullptr);  // also drops the walk if it was saved as in progress
     }
     if (dayLog.resolve(epoch, now)) saveDay(liveWalk);  // the clock just got set
+    dateHistory();
     if (liveWalk && now - lastDaySaveMs >= kDaySaveMs) {
         saveDay(liveWalk);
         lastDaySaveMs = now;
@@ -289,6 +332,7 @@ void setup() {
     storage.begin();
     // Before any new walk can start, close the one a power cut left open.
     storage.recoverUnfinishedWalks();
+    mergeHistorySeed();
     beeper.begin();
     clocksync::begin();
     dayLog.loadCsv(storage.readDayLog().c_str());

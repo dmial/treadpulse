@@ -144,6 +144,10 @@ void assertSameSummary(const Summary& expected, const Summary& actual) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, expected.elevationGainM, actual.elevationGainM);
     TEST_ASSERT_EQUAL_UINT32(expected.segmentCount, actual.segmentCount);
     TEST_ASSERT_EQUAL_UINT32(expected.steps, actual.steps);
+    TEST_ASSERT_EQUAL_UINT32(expected.pulseSeconds, actual.pulseSeconds);
+    for (size_t z = 0; z < expected.zoneSeconds.size(); ++z) {
+        TEST_ASSERT_EQUAL_UINT32(expected.zoneSeconds[z], actual.zoneSeconds[z]);
+    }
     TEST_ASSERT_TRUE(expected.maxHeartRateBpm.has_value());
     TEST_ASSERT_EQUAL_UINT16(*expected.maxHeartRateBpm, *actual.maxHeartRateBpm);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, *expected.averageHeartRateBpm, *actual.averageHeartRateBpm);
@@ -251,6 +255,27 @@ void test_cut_while_walking_rebuilds_the_walk() {
     TEST_ASSERT_EQUAL_UINT32(100'000, result.summary->endMs);  // last logged movement
     TEST_ASSERT_EQUAL_STRING("2026-11-11T23:59:05Z", replay.timeAt(result.summary->startMs).c_str());
     TEST_ASSERT_EQUAL_STRING("2026-11-12T00:00:40Z", replay.timeAt(result.summary->endMs).c_str());
+    TEST_ASSERT_EQUAL_INT64(*walk::parseUtcTime("2026-11-11T23:59:05Z"),
+                            *replay.epochAt(result.summary->startMs));
+}
+
+// A walk recovered after a power cut goes to the history with the same pulse
+// zones as if it had ended normally.
+void test_replay_counts_pulse_zones_as_live() {
+    walk::Config cfg = withSteps();
+    cfg.zones = pulse::Borders{95.0f, 115.0f, 135.0f, 150.0f, 165.0f, 185.0f};
+    LiveWalk live;
+    live.tracker = WalkTracker(cfg);
+    Treadmill mill;  // the pulse climbs from 100 by one every two seconds
+    for (uint32_t t = 0; t <= 100; ++t) live.feed(t, mill.at(t, t >= 5 ? 4.0f : 0.0f, 0.0f));
+    live.endNow();
+
+    WalkReplay replay(cfg);
+    const ReplayResult result = replayLog(live.log, replay);
+    TEST_ASSERT_TRUE(result.summary.has_value());
+    TEST_ASSERT_TRUE(live.summary->zoneSeconds[2] > 0);
+    TEST_ASSERT_TRUE(live.summary->zoneSeconds[3] > 0);
+    assertSameSummary(*live.summary, *result.summary);
 }
 
 void test_cut_after_stopping_drops_the_trailing_pause() {
@@ -326,6 +351,7 @@ void test_walk_without_clock_has_empty_times() {
     const ReplayResult result = replayLog(live.log, replay);
     TEST_ASSERT_TRUE(result.summary.has_value());
     TEST_ASSERT_EQUAL_STRING("", replay.timeAt(result.summary->startMs).c_str());
+    TEST_ASSERT_FALSE(replay.epochAt(result.summary->startMs).has_value());
 }
 
 void test_log_without_walking_gives_nothing() {
@@ -364,6 +390,7 @@ int main(int, char**) {
     RUN_TEST(test_row_from_before_steps_is_read);
     RUN_TEST(test_header_and_damaged_lines_are_rejected);
     RUN_TEST(test_cut_while_walking_rebuilds_the_walk);
+    RUN_TEST(test_replay_counts_pulse_zones_as_live);
     RUN_TEST(test_cut_after_stopping_drops_the_trailing_pause);
     RUN_TEST(test_half_written_last_line_is_ignored);
     RUN_TEST(test_log_from_before_steps_gets_steps_from_the_replay);

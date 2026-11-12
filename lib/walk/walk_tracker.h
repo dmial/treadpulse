@@ -2,9 +2,12 @@
 // sessions and constant-speed/incline segments. Pure C++, host-testable.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <vector>
+
+#include "pulse_zones.h"
 
 namespace walk {
 
@@ -82,6 +85,11 @@ struct Summary {
     std::optional<float> averageHeartRateBpm;
     std::optional<uint16_t> maxHeartRateBpm;
     uint32_t steps = 0;  // estimated from the speed (StepFormula)
+    // Walking seconds with a pulse from the strap, timed like walkMs.
+    uint32_t pulseSeconds = 0;
+    // The same seconds by heart rate zone (Config::zones): [0] below zone 1
+    // (rest), [1..5] the zones. All 0 without a strap or without zones set.
+    std::array<uint32_t, pulse::kZoneCount + 1> zoneSeconds{};
 
     uint32_t walkSeconds() const { return roundedSeconds(walkMs); }
     bool worthKeeping() const { return walkSeconds() >= kMinKeptWalkS; }
@@ -119,6 +127,8 @@ struct Config {
     float movingThresholdKmh = 0.05f;
     uint32_t maxTickGapMs = 2000;  // clamp for the time step between samples
     StepFormula steps;
+    // Heart rate zone borders for Summary::zoneSeconds; empty: not counted.
+    std::optional<pulse::Borders> zones;
 };
 
 class WalkTracker {
@@ -194,6 +204,10 @@ class WalkTracker {
     float maxInclinePct_ = 0.0f;
     uint32_t segmentCount_ = 0;
     HeartRateStats walkHeartRate_;  // walking seconds of the session only
+    // Walking time with a pulse, timed like walkMs_ so it never exceeds it, and
+    // the same time by heart rate zone.
+    uint32_t pulseMs_ = 0;
+    std::array<uint32_t, pulse::kZoneCount + 1> zoneMs_{};
 
     OpenSegment current_;
     std::optional<PendingChange> pending_;

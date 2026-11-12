@@ -22,3 +22,9 @@ cloud/.env
 
 # Simulator output (README: Without a board)
 /screens/
+
+# Walks for the history from before the board kept one (env:backfill)
+src/history_seed.h
+
+# Local copies of cloud walk data taken before repairing it
+/backups/

@@ -9,6 +9,13 @@ namespace walk {
 const char* const kSamplesHeader =
     "time,uptime_s,state,walk_time_s,speed_kmh,incline_pct,distance_m,"
     "treadmill_distance_m,treadmill_time_s,heart_rate_bpm,steps";
+const char* const kSegmentsHeader =
+    "start,end,duration_s,state,speed_kmh,incline_pct,distance_m,avg_heart_rate_bpm,"
+    "max_heart_rate_bpm";
+const char* const kSummaryHeader =
+    "id,start,end,walk_time,walk_time_s,distance_m,steps,avg_speed_kmh,max_speed_kmh,"
+    "max_incline_pct,elevation_gain_m,avg_heart_rate_bpm,max_heart_rate_bpm,segments,"
+    "recovered";
 
 namespace {
 
@@ -48,37 +55,6 @@ int digitsAt(const std::string& s, size_t pos, size_t n) {
     return v;
 }
 
-// Seconds since 1970-01-01T00:00:00Z.
-std::optional<int64_t> parseUtcTime(const std::string& s) {
-    if (s.size() != 20 || s[4] != '-' || s[7] != '-' || s[10] != 'T' || s[13] != ':' ||
-        s[16] != ':' || s[19] != 'Z') {
-        return std::nullopt;
-    }
-    const int y = digitsAt(s, 0, 4), mo = digitsAt(s, 5, 2), d = digitsAt(s, 8, 2);
-    const int h = digitsAt(s, 11, 2), mi = digitsAt(s, 14, 2), sec = digitsAt(s, 17, 2);
-    if (y < 0 || mo < 1 || mo > 12 || d < 1 || d > 31 || h < 0 || h > 23 || mi < 0 ||
-        mi > 59 || sec < 0 || sec > 60) {
-        return std::nullopt;
-    }
-    return daysFromCivil(y, mo, d) * 86400 + h * 3600 + mi * 60 + sec;
-}
-
-std::string formatUtcTime(int64_t t) {
-    int64_t days = t / 86400;
-    int64_t rest = t % 86400;
-    if (rest < 0) {
-        rest += 86400;
-        --days;
-    }
-    int64_t y;
-    unsigned m, d;
-    civilFromDays(days, y, m, d);
-    char buf[64];  // room for any int64 year, so the compiler sees no truncation
-    snprintf(buf, sizeof(buf), "%04lld-%02u-%02uT%02lld:%02lld:%02lldZ",
-             static_cast<long long>(y), m, d, static_cast<long long>(rest / 3600),
-             static_cast<long long>(rest / 60 % 60), static_cast<long long>(rest % 60));
-    return buf;
-}
 
 std::vector<std::string> splitFields(const std::string& line) {
     std::vector<std::string> fields;
@@ -137,6 +113,77 @@ bool parseActivity(const std::string& s, Activity& out) {
 }
 
 }  // namespace
+
+namespace {
+
+// Pulse summary as two CSV fields "avg,max"; both empty without a strap.
+std::string heartRateFields(const std::optional<float>& avg, const std::optional<uint16_t>& max) {
+    char buf[16] = ",";
+    if (avg && max) snprintf(buf, sizeof(buf), "%.0f,%u", *avg, static_cast<unsigned>(*max));
+    return buf;
+}
+
+}  // namespace
+
+std::string formatHms(uint32_t seconds) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", static_cast<unsigned long>(seconds / 3600),
+             static_cast<unsigned long>(seconds / 60 % 60), static_cast<unsigned long>(seconds % 60));
+    return buf;
+}
+
+std::string formatSegmentRow(const Segment& s, const std::string& start, const std::string& end) {
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%s,%s,%lu,%s,%.1f,%.1f,%.1f,%s", start.c_str(), end.c_str(),
+             static_cast<unsigned long>(s.durationS()), activityName(s.activity), s.speedKmh,
+             s.inclinePct, s.distanceM,
+             heartRateFields(s.averageHeartRateBpm, s.maxHeartRateBpm).c_str());
+    return buf;
+}
+
+std::string formatSummaryRow(int id, const Summary& sum, const std::string& start,
+                             const std::string& end, bool recovered) {
+    const uint32_t walkS = sum.walkSeconds();
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%d,%s,%s,%s,%lu,%.0f,%lu,%.2f,%.1f,%.1f,%.1f,%s,%lu,%s", id,
+             start.c_str(), end.c_str(), formatHms(walkS).c_str(),
+             static_cast<unsigned long>(walkS), sum.distanceM, static_cast<unsigned long>(sum.steps),
+             sum.averageSpeedKmh(), sum.maxSpeedKmh, sum.maxInclinePct, sum.elevationGainM,
+             heartRateFields(sum.averageHeartRateBpm, sum.maxHeartRateBpm).c_str(),
+             static_cast<unsigned long>(sum.segmentCount), recovered ? "yes" : "");
+    return buf;
+}
+
+std::optional<int64_t> parseUtcTime(const std::string& s) {
+    if (s.size() != 20 || s[4] != '-' || s[7] != '-' || s[10] != 'T' || s[13] != ':' ||
+        s[16] != ':' || s[19] != 'Z') {
+        return std::nullopt;
+    }
+    const int y = digitsAt(s, 0, 4), mo = digitsAt(s, 5, 2), d = digitsAt(s, 8, 2);
+    const int h = digitsAt(s, 11, 2), mi = digitsAt(s, 14, 2), sec = digitsAt(s, 17, 2);
+    if (y < 0 || mo < 1 || mo > 12 || d < 1 || d > 31 || h < 0 || h > 23 || mi < 0 ||
+        mi > 59 || sec < 0 || sec > 60) {
+        return std::nullopt;
+    }
+    return daysFromCivil(y, mo, d) * 86400 + h * 3600 + mi * 60 + sec;
+}
+
+std::string formatUtcTime(int64_t t) {
+    int64_t days = t / 86400;
+    int64_t rest = t % 86400;
+    if (rest < 0) {
+        rest += 86400;
+        --days;
+    }
+    int64_t y;
+    unsigned m, d;
+    civilFromDays(days, y, m, d);
+    char buf[64];  // room for any int64 year, so the compiler sees no truncation
+    snprintf(buf, sizeof(buf), "%04lld-%02u-%02uT%02lld:%02lld:%02lldZ",
+             static_cast<long long>(y), m, d, static_cast<long long>(rest / 3600),
+             static_cast<long long>(rest / 60 % 60), static_cast<long long>(rest % 60));
+    return buf;
+}
 
 std::string formatSampleRow(const SampleRow& r, const std::string& time) {
     char buf[160];
@@ -203,11 +250,11 @@ void WalkReplay::add(const LoggedRow& logged) {
     last_ = r;
 }
 
-ReplayResult WalkReplay::finish() {
+ReplayResult WalkReplay::finish(Totals totals) {
     if (!summary_) collect(tracker_.endSession());
 
     ReplayResult out{segments_, summary_};
-    if (out.summary && last_) {
+    if (out.summary && last_ && totals == Totals::Logged) {
         // The live totals were logged every second; prefer them to the replay,
         // which only sees whole-second timestamps.
         out.summary->walkMs = last_->walkSeconds * 1000;
@@ -217,14 +264,19 @@ ReplayResult WalkReplay::finish() {
     return out;
 }
 
-std::string WalkReplay::timeAt(uint32_t uptimeMs) const {
-    if (clock_.empty()) return "";
+std::optional<int64_t> WalkReplay::epochAt(uint32_t uptimeMs) const {
+    if (clock_.empty()) return std::nullopt;
     const uint32_t up = uptimeMs / 1000;
     const ClockRun* run = &clock_.front();
     for (const ClockRun& c : clock_) {
         if (c.uptimeS <= up) run = &c;
     }
-    return formatUtcTime(static_cast<int64_t>(up) + run->offsetS);
+    return static_cast<int64_t>(up) + run->offsetS;
+}
+
+std::string WalkReplay::timeAt(uint32_t uptimeMs) const {
+    const std::optional<int64_t> t = epochAt(uptimeMs);
+    return t ? formatUtcTime(*t) : "";
 }
 
 void WalkReplay::noteClock(const LoggedRow& logged) {

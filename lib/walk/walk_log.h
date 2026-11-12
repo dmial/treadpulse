@@ -14,6 +14,20 @@ namespace walk {
 
 extern const char* const kSamplesHeader;
 
+// The other two files of a walk (segments.csv, summary.csv): headers and rows.
+// Times are UTC "YYYY-MM-DDTHH:MM:SSZ", "" when the clock was not set.
+extern const char* const kSegmentsHeader;
+extern const char* const kSummaryHeader;
+std::string formatSegmentRow(const Segment& s, const std::string& start, const std::string& end);
+std::string formatSummaryRow(int id, const Summary& sum, const std::string& start,
+                             const std::string& end, bool recovered);
+// "1:02:03"
+std::string formatHms(uint32_t seconds);
+
+// UTC "YYYY-MM-DDTHH:MM:SSZ" <-> seconds since 1970-01-01T00:00:00Z.
+std::optional<int64_t> parseUtcTime(const std::string& s);
+std::string formatUtcTime(int64_t t);
+
 // What the main loop logs once per second during a walk.
 struct SampleRow {
     uint32_t uptimeMs = 0;
@@ -58,11 +72,22 @@ class WalkReplay {
     // Rows of one log, in file order.
     void add(const LoggedRow& logged);
 
+    // Which totals the summary takes: the live ones logged every second (they
+    // saw the exact timing), or the replay's own, for a log written by a
+    // firmware that counted them wrong (the distance, before 2026-11-12).
+    enum class Totals { Logged, Replayed };
+
     // Closes the walk at its last logged moment.
-    ReplayResult finish();
+    ReplayResult finish(Totals totals = Totals::Logged);
 
     // UTC time of a logged moment, "" when the clock was not set.
     std::string timeAt(uint32_t uptimeMs) const;
+    // The same in seconds since 1970; empty when the clock was not set.
+    std::optional<int64_t> epochAt(uint32_t uptimeMs) const;
+
+    // The tracker after the rows added so far: what the live log would have
+    // held in its walking time, distance and steps columns at that row.
+    const WalkTracker& tracker() const { return tracker_; }
 
    private:
     // UTC time minus uptime, in seconds, valid from `uptimeS` onwards.

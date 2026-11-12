@@ -12,5 +12,8 @@ inline walk::Config walkSettings() {
     walk::Config c;
     c.steps.base = userconfig::kStepsPerMinuteBase;
     c.steps.perKmh = userconfig::kStepsPerMinutePerKmh;
+    pulse::Borders zones;
+    for (int i = 0; i <= pulse::kZoneCount; ++i) zones[i] = userconfig::kHeartRateZoneBorders[i];
+    c.zones = zones;
     return c;
 }

@@ -85,6 +85,10 @@ Events WalkTracker::tick(const Sample& s) {
     if (s.treadmillStopped) stopReportMs_ = s.uptimeMs;
     if (a == Activity::Walk) {
         walkMs_ += dtMs;
+        if (s.heartRateBpm) {
+            pulseMs_ += dtMs;
+            if (cfg_.zones) zoneMs_[pulse::zoneOf(*cfg_.zones, *s.heartRateBpm)] += dtMs;
+        }
         steps_ += cfg_.steps.over(s.speedKmh, dtMs);
         lastWalkMs_ = s.uptimeMs;
         maxSpeedKmh_ = std::max(maxSpeedKmh_, s.speedKmh);
@@ -117,6 +121,8 @@ void WalkTracker::startSession(const Sample& s, Events& ev) {
     stopReportMs_.reset();
     walkHeartRate_ = HeartRateStats{};
     walkHeartRate_.add(s.heartRateBpm);
+    pulseMs_ = 0;
+    zoneMs_ = {};
 
     current_ = OpenSegment{keyFor(Activity::Walk, s), s.uptimeMs, 0.0f};
     current_.heartRate.add(s.heartRateBpm);
@@ -256,6 +262,8 @@ void WalkTracker::closeSession(Events& ev) {
     sum.averageHeartRateBpm = walkHeartRate_.average();
     sum.maxHeartRateBpm = walkHeartRate_.maximum();
     sum.steps = steps();
+    sum.pulseSeconds = roundedSeconds(pulseMs_);
+    for (size_t z = 0; z < zoneMs_.size(); ++z) sum.zoneSeconds[z] = roundedSeconds(zoneMs_[z]);
     ev.sessionEnded = sum;
 
     inSession_ = false;

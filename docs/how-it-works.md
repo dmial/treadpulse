@@ -49,6 +49,24 @@ The example values, 57 + 11.4 × speed, were measured on one walker, 187 cm tall
 
 Outside the measured speeds, such as the seconds of speeding up and slowing down, the estimate is rougher, but those seconds barely move a walk's total.
 
+## History
+
+Walk folders leave the board once they are uploaded, so the board also keeps a short line for every walk it has kept, in `/history.csv`, and never deletes it. It works without the cloud, and making room for a new walk deletes only walk folders, never the history. About 100 bytes a walk: years of walking take less than a megabyte.
+
+Each line: start, end, walking time, steps, distance, elevation gain, walking seconds with a pulse, the same seconds by heart rate zone (below zone 1, then zones 1 to 5), average and top pulse. The zones are counted with the borders in `src/user_config.h` on the day of the walk and stay as counted: after a new test moves the borders, older walks still show the zones they were walked in. Without a strap the pulse columns are 0 and empty.
+
+A walk that ends before the board knows the time gets its line once the clock is set; if the power goes before that, it has none (just as it is missing from the day ring). A walk recovered after a power loss gets its line at the next power-on.
+
+**Walks from before the history.** Their per-second logs are in the cloud, and a computer-side tool turns them into history lines with the same code the board runs:
+
+1. Download each walk's `samples.csv` from the bucket into a folder per walk: `<dir>/0042_2026-11-10T0815Z/samples.csv`.
+2. `pio run -e backfill && .pio/build/backfill/program history <dir> src/history_seed.h`
+3. Flash the firmware. At power-on it adds the walks its history lacks (a walk starting within a minute of one already there is the same walk), so flashing it again changes nothing.
+
+`src/history_seed.h` holds your walks, so git ignores it. Distance and walking time come from the replay, not from the log, so the lines match what the board would write today.
+
+**Walk files written by an older firmware.** The same tool rewrites them as today's firmware would: `program rewrite <dir> <out dir>` replays each `samples.csv`, puts the replayed walking time, distance and steps into its columns (time, pulse, speed and incline stay as logged) and rebuilds `segments.csv` and `summary.csv`; walks with under a minute of walking are left out. The receiver never overwrites a file, so the rewritten files go to the bucket with `wrangler r2 object put`. This is how the walks of 2026-11-11 and 12 were fixed: the firmware before then counted the distance twice and wrote no steps.
+
 ## Uploads
 
 Wi-Fi shares the radio with Bluetooth, so it stays off while you walk. The board goes online:
@@ -71,7 +89,7 @@ The receiver (`cloud/`) only accepts writes: nothing can be read back through it
 
 **The treadmill's totals read zero.** They do during a pause (and come back where they were when you resume) and after a stop (a new workout counts up from zero). The board takes a zero as "no reading", not as a reset, so distance never counts twice. The Merach W50 also sends, about once a walk, a single reading with speed, distance and time all at zero while the belt keeps moving; the board drops it. A real stop looks different: the speed drops to zero first, while distance and time still hold.
 
-**The board loses power.** The per-second log is flushed every 10 seconds, so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes; one with less than a minute of walking is deleted instead. A line cut in half by the power loss is skipped.
+**The board loses power.** The per-second log is flushed every 10 seconds, so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes; one with less than a minute of walking is deleted instead. A line cut in half by the power loss is skipped. The recovered walk is added to the history.
 
 If the board restarts mid-walk while the treadmill keeps going, you get two walks: the recovered one and a new one.
 
@@ -84,13 +102,15 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `lib/walk/` | Walking time, walks, segments, distance, elevation gain, pulse stats; the per-second log format and power-loss recovery. No Arduino dependencies |
 | `lib/pulse/` | Heart rate zones, the hint to the next threshold, threshold beeps |
 | `lib/day/` | Today's total and the walks on the day strip |
+| `lib/archive/` | The history: one line per kept walk, read back and merged. No Arduino dependencies |
 | `lib/screen/` | The dashboard (LVGL): layout, pulse chart, ring, day strip; Geologica fonts (`tools/make_fonts.sh`). No Arduino dependencies: the same code renders on a computer (`pio run -e sim`) |
 | `src/ble_link.*` | Bluetooth: scanning, connecting, subscribing, reconnecting (NimBLE) |
 | `src/treadmill_link.*` | Treadmill link on top of `ble_link` |
 | `src/heart_rate_link.*` | Heart rate strap link on top of `ble_link` |
 | `src/display.*` | The board's RGB panel and its link to LVGL |
 | `src/touch.*` | The touch controller (GT911), polled over I2C, as LVGL's pointer |
-| `src/storage.*` | The board's memory (LittleFS): walk logs, upload queue |
+| `src/storage.*` | The board's memory (LittleFS): walk logs, upload queue, day log, history |
+| `src/backfill/` | Computer-side tool for walk logs downloaded from the cloud: history lines for the board, walk files rewritten as today's firmware writes them (`pio run -e backfill`) |
 | `src/net.*` | Wi-Fi on for a session, then off |
 | `src/uploader.*` | Uploads walks over HTTPS |
 | `src/clock_sync.*` | Time from NTP |

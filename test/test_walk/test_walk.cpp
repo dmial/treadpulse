@@ -428,6 +428,89 @@ void test_walk_without_strap_has_no_heart_rate() {
     TEST_ASSERT_FALSE(r.segments[0].maxHeartRateBpm.has_value());
 }
 
+// The zone borders of user_config.example.h.
+walk::Config withZones() {
+    walk::Config c;
+    c.zones = pulse::Borders{95.0f, 115.0f, 135.0f, 150.0f, 165.0f, 185.0f};
+    return c;
+}
+
+void test_pulse_seconds_split_by_zone() {
+    Run r(withZones());
+    auto withPulse = [](uint32_t t, float speed, std::optional<uint16_t> bpm) {
+        Sample s = at(t, speed);
+        s.heartRateBpm = bpm;
+        return s;
+    };
+    // The first second starts the walk and adds no time, as for walkSeconds.
+    r.span(0, 9, [&](uint32_t t) { return withPulse(t, 3.0f, 90); });             // rest
+    r.span(10, 29, [&](uint32_t t) { return withPulse(t, 3.0f, 115); });          // zone 2: on a border
+    r.span(30, 39, [&](uint32_t t) { return withPulse(t, 4.0f, std::nullopt); });  // strap off
+    r.span(40, 49, [&](uint32_t t) { return withPulse(t, 5.0f, 190); });          // over zone 5
+    // Standing after the walk does not count.
+    r.span(50, 400, [&](uint32_t t) { return withPulse(t, 0.0f, 140); });
+
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    const walk::Summary& sum = r.summaries[0];
+    TEST_ASSERT_EQUAL_UINT32(49, sum.walkSeconds());
+    TEST_ASSERT_EQUAL_UINT32(39, sum.pulseSeconds);
+    TEST_ASSERT_EQUAL_UINT32(9, sum.zoneSeconds[0]);
+    TEST_ASSERT_EQUAL_UINT32(0, sum.zoneSeconds[1]);
+    TEST_ASSERT_EQUAL_UINT32(20, sum.zoneSeconds[2]);
+    TEST_ASSERT_EQUAL_UINT32(0, sum.zoneSeconds[3]);
+    TEST_ASSERT_EQUAL_UINT32(0, sum.zoneSeconds[4]);
+    TEST_ASSERT_EQUAL_UINT32(10, sum.zoneSeconds[5]);
+}
+
+void test_zone_seconds_start_from_zero_each_walk() {
+    Run r(withZones());
+    auto withPulse = [](uint32_t t, float speed, uint16_t bpm) {
+        Sample s = at(t, speed);
+        s.heartRateBpm = bpm;
+        return s;
+    };
+    r.span(0, 99, [&](uint32_t t) { return withPulse(t, 3.0f, 140); });
+    r.span(100, 450, [&](uint32_t t) { return withPulse(t, 0.0f, 100); });
+    r.span(451, 550, [&](uint32_t t) { return withPulse(t, 3.0f, 120); });
+    r.span(551, 900, [&](uint32_t t) { return withPulse(t, 0.0f, 100); });
+
+    TEST_ASSERT_EQUAL(2, r.summaries.size());
+    TEST_ASSERT_EQUAL_UINT32(99, r.summaries[0].zoneSeconds[3]);
+    TEST_ASSERT_EQUAL_UINT32(0, r.summaries[1].zoneSeconds[3]);
+    TEST_ASSERT_EQUAL_UINT32(99, r.summaries[1].zoneSeconds[2]);
+    TEST_ASSERT_EQUAL_UINT32(99, r.summaries[1].pulseSeconds);
+}
+
+// Ticks late by more than a second count as at most two seconds of walking;
+// the pulse time follows the same clock and never runs ahead of it.
+void test_pulse_time_never_exceeds_walking_time() {
+    Run r(withZones());
+    for (uint32_t t = 0; t <= 100; ++t) {
+        Sample s = at(t, 3.0f);
+        if (t % 10 == 0) s.uptimeMs += 2500;  // a long blocking call
+        s.heartRateBpm = 120;
+        r.feed(s);
+    }
+    r.span(101, 450, [](uint32_t t) { return at(t, 0.0f); });
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    TEST_ASSERT_EQUAL_UINT32(r.summaries[0].walkSeconds(), r.summaries[0].pulseSeconds);
+    TEST_ASSERT_EQUAL_UINT32(r.summaries[0].walkSeconds(), r.summaries[0].zoneSeconds[2]);
+}
+
+void test_without_zones_pulse_seconds_still_count() {
+    Run r;
+    r.span(0, 99, [](uint32_t t) {
+        Sample s = at(t, 3.0f);
+        s.heartRateBpm = 130;
+        return s;
+    });
+    r.span(100, 450, [](uint32_t t) { return at(t, 0.0f); });
+
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    TEST_ASSERT_EQUAL_UINT32(99, r.summaries[0].pulseSeconds);
+    for (uint32_t z : r.summaries[0].zoneSeconds) TEST_ASSERT_EQUAL_UINT32(0, z);
+}
+
 void test_steps_follow_the_speed() {
     Run r(withSteps());
     r.span(0, 600, [](uint32_t t) { return at(t, 3.7f, 1.0f); });     // 99.2 a minute
@@ -499,6 +582,10 @@ int main(int, char**) {
     RUN_TEST(test_segment_heart_rate_follows_segment_boundaries);
     RUN_TEST(test_blip_pulse_stays_in_its_segment);
     RUN_TEST(test_walk_without_strap_has_no_heart_rate);
+    RUN_TEST(test_pulse_seconds_split_by_zone);
+    RUN_TEST(test_zone_seconds_start_from_zero_each_walk);
+    RUN_TEST(test_pulse_time_never_exceeds_walking_time);
+    RUN_TEST(test_without_zones_pulse_seconds_still_count);
     RUN_TEST(test_steps_follow_the_speed);
     RUN_TEST(test_pause_adds_no_steps);
     RUN_TEST(test_link_drop_is_filled_with_steps_too);

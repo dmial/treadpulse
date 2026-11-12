@@ -4,6 +4,8 @@
 //   /walks/<walk>/segments.csv  one row per constant speed/incline stretch
 //   /walks/<walk>/summary.csv   header + one row; written last, so a walk is
 //                               finished (and ready to upload) once it exists
+//   /history.csv                every kept walk, one line each (archive.h);
+//                               stays on the board after the walk is uploaded
 //
 // <walk> is "0042_2026-11-10T0815Z": a running number kept in NVS (it survives
 // uploads and reflashing) and the start time in UTC. Without a clock it is
@@ -16,6 +18,7 @@
 
 #include <vector>
 
+#include "archive.h"
 #include "walk_log.h"
 #include "walk_tracker.h"
 
@@ -55,12 +58,21 @@ class Storage {
     // A failed write only costs the daily total, so it is logged, not fatal.
     void writeDayLog(const String& csv);
 
+    // The history of every kept walk (archive.h CSV) in /history.csv. Making
+    // room for a new walk deletes only unsent walk folders, never this file.
+    void appendHistory(const archive::Entry& e);
+    String readHistory();
+    // Replaces the whole file, via a temporary one (e.g. after a merge).
+    void writeHistory(const String& csv);
+
    private:
     bool isFinished(const String& walk);
     bool recoverWalk(const String& walk);
     void makeRoom();
     bool writeSummary(const String& walk, const String& row);
     bool appendLine(const String& path, const String& header, const String& line);
+    String readFile(const char* path);
+    bool replaceFile(const char* path, const char* tmpPath, const String& content);
     void fail(const char* what);
 
     bool ok_ = false;

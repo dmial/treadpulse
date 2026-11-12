@@ -17,6 +17,8 @@ constexpr const char* kSegments = "segments.csv";
 constexpr const char* kSummary = "summary.csv";
 constexpr const char* kDayLog = "/day.csv";
 constexpr const char* kDayLogTmp = "/day.tmp";
+constexpr const char* kHistory = "/history.csv";
+constexpr const char* kHistoryTmp = "/history.tmp";
 
 // Rows reach flash in batches: a power cut loses at most this much of the log.
 constexpr uint32_t kFlushIntervalMs = 10000;
@@ -24,54 +26,8 @@ constexpr uint32_t kFlushIntervalMs = 10000;
 // (an hour of walking takes ~250 KB).
 constexpr size_t kMinFreeBytes = 1024 * 1024;
 
-const char* kSegmentsHeader =
-    "start,end,duration_s,state,speed_kmh,incline_pct,distance_m,avg_heart_rate_bpm,"
-    "max_heart_rate_bpm";
-const char* kSummaryHeader =
-    "id,start,end,walk_time,walk_time_s,distance_m,steps,avg_speed_kmh,max_speed_kmh,"
-    "max_incline_pct,elevation_gain_m,avg_heart_rate_bpm,max_heart_rate_bpm,segments,"
-    "recovered";
-
 String timeAt(uint32_t uptimeMs) {
     return clocksync::formatUtc(clocksync::epochAtUptime(uptimeMs));
-}
-
-// Pulse summary as two CSV fields "avg,max"; both empty without a strap.
-String heartRateFields(const std::optional<float>& avg, const std::optional<uint16_t>& max) {
-    char buf[16] = ",";
-    if (avg && max) {
-        snprintf(buf, sizeof(buf), "%.0f,%u", *avg, static_cast<unsigned>(*max));
-    }
-    return String(buf);
-}
-
-String hms(uint32_t seconds) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", static_cast<unsigned long>(seconds / 3600),
-             static_cast<unsigned long>(seconds / 60 % 60), static_cast<unsigned long>(seconds % 60));
-    return String(buf);
-}
-
-String segmentLine(const walk::Segment& s, const String& start, const String& end) {
-    char buf[160];
-    snprintf(buf, sizeof(buf), "%s,%s,%lu,%s,%.1f,%.1f,%.1f,%s", start.c_str(), end.c_str(),
-             static_cast<unsigned long>(s.durationS()), walk::activityName(s.activity),
-             s.speedKmh, s.inclinePct, s.distanceM,
-             heartRateFields(s.averageHeartRateBpm, s.maxHeartRateBpm).c_str());
-    return String(buf);
-}
-
-String summaryLine(int id, const walk::Summary& sum, const String& start, const String& end,
-                   bool recovered) {
-    const uint32_t walkS = sum.walkSeconds();
-    char buf[256];
-    snprintf(buf, sizeof(buf), "%d,%s,%s,%s,%lu,%.0f,%lu,%.2f,%.1f,%.1f,%.1f,%s,%lu,%s", id,
-             start.c_str(), end.c_str(), hms(walkS).c_str(), static_cast<unsigned long>(walkS),
-             sum.distanceM, static_cast<unsigned long>(sum.steps), sum.averageSpeedKmh(),
-             sum.maxSpeedKmh, sum.maxInclinePct, sum.elevationGainM,
-             heartRateFields(sum.averageHeartRateBpm, sum.maxHeartRateBpm).c_str(),
-             static_cast<unsigned long>(sum.segmentCount), recovered ? "yes" : "");
-    return String(buf);
 }
 
 String fromStd(const std::string& s) { return String(s.c_str()); }
@@ -210,21 +166,28 @@ bool Storage::recoverWalk(const String& walk) {
         fail("cannot rewrite segments file");
         return false;
     }
-    seg.println(kSegmentsHeader);
+    seg.println(walk::kSegmentsHeader);
     for (const walk::Segment& s : result.segments) {
-        seg.println(segmentLine(s, fromStd(replay.timeAt(s.startMs)),
-                                fromStd(replay.timeAt(s.endMs))));
+        seg.println(walk::formatSegmentRow(s, replay.timeAt(s.startMs), replay.timeAt(s.endMs))
+                        .c_str());
     }
     seg.close();
 
     const walk::Summary& sum = *result.summary;
     const int id = atoi(walk.c_str());  // "0042_..." -> 42
-    if (!writeSummary(walk, summaryLine(id, sum, fromStd(replay.timeAt(sum.startMs)),
-                                        fromStd(replay.timeAt(sum.endMs)), true))) {
+    if (!writeSummary(walk, fromStd(walk::formatSummaryRow(id, sum, replay.timeAt(sum.startMs),
+                                                           replay.timeAt(sum.endMs), true)))) {
         return false;
     }
+    const std::optional<int64_t> start = replay.epochAt(sum.startMs);
+    const std::optional<int64_t> end = replay.epochAt(sum.endMs);
+    if (start && end) {
+        appendHistory(archive::fromSummary(sum, *start, *end));
+    } else {
+        Serial.printf("[fs] walk %s has no date: not in the history\n", walk.c_str());
+    }
     Serial.printf("[fs] walk %s recovered: %s, %.0f m\n", walk.c_str(),
-                  hms(sum.walkSeconds()).c_str(), sum.distanceM);
+                  walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
     return true;
 }
 
@@ -259,7 +222,7 @@ void Storage::startWalk(uint32_t startUptimeMs) {
     samples_.flush();
     lastFlushMs_ = startUptimeMs;
 
-    if (!appendLine(walkFile(walk_, kSegments), kSegmentsHeader, "")) return;
+    if (!appendLine(walkFile(walk_, kSegments), walk::kSegmentsHeader, "")) return;
     Serial.printf("[fs] walk %s started\n", walk_.c_str());
 }
 
@@ -274,8 +237,8 @@ void Storage::appendSample(const walk::SampleRow& r) {
 
 void Storage::appendSegment(const walk::Segment& s) {
     if (!ok_ || walk_.isEmpty()) return;
-    appendLine(walkFile(walk_, kSegments), kSegmentsHeader,
-               segmentLine(s, timeAt(s.startMs), timeAt(s.endMs)));
+    appendLine(walkFile(walk_, kSegments), walk::kSegmentsHeader,
+               fromStd(walk::formatSegmentRow(s, timeAt(s.startMs).c_str(), timeAt(s.endMs).c_str())));
 }
 
 void Storage::finishWalk(const walk::Summary& sum) {
@@ -284,13 +247,13 @@ void Storage::finishWalk(const walk::Summary& sum) {
 
     const String walk = walk_;
     walk_ = "";
-    if (!writeSummary(walk, summaryLine(walkId_, sum, timeAt(sum.startMs), timeAt(sum.endMs),
-                                        false))) {
+    if (!writeSummary(walk, fromStd(walk::formatSummaryRow(walkId_, sum, timeAt(sum.startMs).c_str(),
+                                                           timeAt(sum.endMs).c_str(), false)))) {
         return;
     }
     pendingCount_ = static_cast<int>(pendingWalks().size());
     Serial.printf("[fs] walk %s finished: %s, %.0f m\n", walk.c_str(),
-                  hms(sum.walkSeconds()).c_str(), sum.distanceM);
+                  walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
 }
 
 void Storage::discardWalk() {
@@ -313,7 +276,7 @@ bool Storage::writeSummary(const String& walk, const String& row) {
         fail("cannot write summary");
         return false;
     }
-    f.println(kSummaryHeader);
+    f.println(walk::kSummaryHeader);
     f.println(row);
     f.close();
     if (!LittleFS.rename(tmp, walkFile(walk, kSummary))) {
@@ -336,29 +299,55 @@ bool Storage::appendLine(const String& path, const String& header, const String&
     return true;
 }
 
-String Storage::readDayLog() {
-    if (!ok_ || !LittleFS.exists(kDayLog)) return "";
-    File f = LittleFS.open(kDayLog, FILE_READ);
+String Storage::readFile(const char* path) {
+    if (!ok_ || !LittleFS.exists(path)) return "";
+    File f = LittleFS.open(path, FILE_READ);
     if (!f) return "";
-    String csv = f.readString();
+    String content = f.readString();
     f.close();
-    return csv;
+    return content;
 }
 
+// Via a temporary file, so a power cut never leaves half a file.
+bool Storage::replaceFile(const char* path, const char* tmpPath, const String& content) {
+    if (!ok_) return false;
+    File f = LittleFS.open(tmpPath, FILE_WRITE);
+    if (!f) return false;
+    const bool written = f.print(content) == content.length();
+    f.close();
+    if (!written) {
+        LittleFS.remove(tmpPath);
+        return false;
+    }
+    if (LittleFS.rename(tmpPath, path)) return true;
+    LittleFS.remove(path);
+    return LittleFS.rename(tmpPath, path);
+}
+
+String Storage::readDayLog() { return readFile(kDayLog); }
+
 void Storage::writeDayLog(const String& csv) {
+    if (ok_ && !replaceFile(kDayLog, kDayLogTmp, csv)) Serial.println("[fs] cannot save the day log");
+}
+
+void Storage::appendHistory(const archive::Entry& e) {
     if (!ok_) return;
-    // Via a temporary file, so a power cut never leaves half a day log.
-    File f = LittleFS.open(kDayLogTmp, FILE_WRITE);
+    // A failed write costs one line of history, not the walk logs: no fail().
+    const bool isNew = !LittleFS.exists(kHistory);
+    File f = LittleFS.open(kHistory, FILE_APPEND);
     if (!f) {
-        Serial.println("[fs] cannot write the day log");
+        Serial.println("[fs] cannot add the walk to the history");
         return;
     }
-    f.print(csv);
+    if (isNew) f.println(archive::kHeader);
+    f.println(archive::formatEntry(e).c_str());
     f.close();
-    if (!LittleFS.rename(kDayLogTmp, kDayLog)) {
-        LittleFS.remove(kDayLog);
-        if (!LittleFS.rename(kDayLogTmp, kDayLog)) Serial.println("[fs] cannot save the day log");
-    }
+}
+
+String Storage::readHistory() { return readFile(kHistory); }
+
+void Storage::writeHistory(const String& csv) {
+    if (ok_ && !replaceFile(kHistory, kHistoryTmp, csv)) Serial.println("[fs] cannot save the history");
 }
 
 void Storage::fail(const char* what) {
