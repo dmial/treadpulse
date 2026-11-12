@@ -61,7 +61,8 @@ constexpr int32_t kLeftX = 150;  // centre of the column
 constexpr int32_t kLeftW = 296;  // the timer drops to the numbers' size past this
 constexpr int32_t kRingY = 258;  // centre
 constexpr int32_t kRingOuter = 102, kRingWidth = 14;  // room for "of 120 min today" inside
-constexpr int32_t kTodayBaseline = 265, kTodayCaptionBaseline = 287;
+// Inside the ring: today's minutes, the goal under them, today's steps last.
+constexpr int32_t kTodayBaseline = 252, kTodayCaptionBaseline = 274, kTodayStepsBaseline = 298;
 
 // Zone scale under the pulse
 constexpr int32_t kScaleY = 128, kSegW = 32, kSegGap = 2, kSegH = 8;
@@ -205,6 +206,13 @@ std::string walkClock(uint32_t s) {
     return buf;
 }
 
+// 8715 -> "8,715 steps".
+std::string steps(uint32_t n) {
+    std::string digits = std::to_string(n);
+    for (int i = static_cast<int>(digits.size()) - 3; i > 0; i -= 3) digits.insert(i, ",");
+    return digits + (n == 1 ? " step" : " steps");
+}
+
 std::string oneDecimal(float v) {
     if (std::fabs(v) < 0.05f) v = 0.0f;  // no "-0.0"
     char buf[16];
@@ -326,6 +334,7 @@ void Dashboard::buildRing() {
 
     todayValue_ = makeLabel(dash_, &geo_44, kWhite, Align::Center, kLeftX, kTodayBaseline, 140);
     todayCaption_ = makeLabel(dash_, &geo_16, kMuted, Align::Center, kLeftX, kTodayCaptionBaseline, 140);
+    todaySteps_ = makeLabel(dash_, &geo_18, kLineLabel, Align::Center, kLeftX, kTodayStepsBaseline, 150);
 }
 
 void Dashboard::buildNumbers() {
@@ -442,9 +451,9 @@ void Dashboard::updateStatus(const Model& m) {
 void Dashboard::updateRing(const Model& m) {
     const bool up = m.treadmillUp;
 
-    setText(walkCaption_, m.walking            ? "this walk"
-                          : m.walkSeconds > 0 ? "last walk"
-                                              : "walk");
+    const std::string walkName = m.walking ? "this walk" : m.walkSeconds > 0 ? "last walk" : "walk";
+    setText(walkCaption_,
+            m.walkSeconds > 0 && m.walkSteps > 0 ? walkName + " · " + steps(m.walkSteps) : walkName);
     // A walk past an hour ("1:02:03") does not fit the big font: one size down.
     const std::string walk = walkClock(m.walkSeconds);
     const lv_font_t* walkFont = textWidth(walk.c_str(), &geo_80) <= kLeftW ? &geo_80 : &geo_60;
@@ -477,6 +486,8 @@ void Dashboard::updateRing(const Model& m) {
         setText(todayCaption_, "+" + std::to_string((total - goal) / 60) + " min over");
     }
     setTextColor(todayCaption_, met && up ? kWhite : kMuted);
+    setText(todaySteps_, steps(m.today.totalSteps));
+    setTextColor(todaySteps_, up ? kLineLabel : kOff);
 }
 
 void Dashboard::updateNumbers(const Model& m) {

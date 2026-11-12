@@ -8,8 +8,8 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 
 ## Features
 
-- **This walk, in big digits.** Walking time runs only while the belt moves. Speed and incline next to it.
-- **Daily goal ring.** Minutes walked today out of your goal. Past the goal, a second, brighter lap.
+- **This walk, in big digits.** Walking time runs only while the belt moves, with the steps under it ([estimated from the speed](docs/how-it-works.md#steps)). Speed and incline next to it.
+- **Daily goal ring.** Minutes walked today out of your goal, and today's steps. Past the goal, a second, brighter lap.
 - **Heart rate zones.** The pulse is colored by zone, with a five-zone scale and how far you are from the next threshold.
 - **Pulse chart of the walk** with your two thresholds and where your pulse sat over the last 5 minutes.
 - **Beeps** when the pulse crosses a threshold, and when the treadmill link drops mid-walk.
@@ -64,7 +64,7 @@ A 3D-printed desk stand is in the works: [enclosure](enclosure/).
    ```
 
    - `src/secrets.h`: Wi-Fi name and password (2.4 GHz networks only), plus the cloud receiver's address and key (leave them empty for now).
-   - `src/user_config.h`: your heart rate zones and two thresholds, daily goal, time zone.
+   - `src/user_config.h`: your heart rate zones and two thresholds, daily goal, time zone, step formula.
 
 4. Connect the board by USB-C and flash it:
 

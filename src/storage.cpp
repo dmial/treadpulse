@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "clock_sync.h"
+#include "walk_settings.h"
 
 namespace {
 
@@ -27,7 +28,7 @@ const char* kSegmentsHeader =
     "start,end,duration_s,state,speed_kmh,incline_pct,distance_m,avg_heart_rate_bpm,"
     "max_heart_rate_bpm";
 const char* kSummaryHeader =
-    "id,start,end,walk_time,walk_time_s,distance_m,avg_speed_kmh,max_speed_kmh,"
+    "id,start,end,walk_time,walk_time_s,distance_m,steps,avg_speed_kmh,max_speed_kmh,"
     "max_incline_pct,elevation_gain_m,avg_heart_rate_bpm,max_heart_rate_bpm,segments,"
     "recovered";
 
@@ -64,10 +65,10 @@ String summaryLine(int id, const walk::Summary& sum, const String& start, const 
                    bool recovered) {
     const uint32_t walkS = sum.walkSeconds();
     char buf[256];
-    snprintf(buf, sizeof(buf), "%d,%s,%s,%s,%lu,%.0f,%.2f,%.1f,%.1f,%.1f,%s,%lu,%s", id,
+    snprintf(buf, sizeof(buf), "%d,%s,%s,%s,%lu,%.0f,%lu,%.2f,%.1f,%.1f,%.1f,%s,%lu,%s", id,
              start.c_str(), end.c_str(), hms(walkS).c_str(), static_cast<unsigned long>(walkS),
-             sum.distanceM, sum.averageSpeedKmh(), sum.maxSpeedKmh, sum.maxInclinePct,
-             sum.elevationGainM,
+             sum.distanceM, static_cast<unsigned long>(sum.steps), sum.averageSpeedKmh(),
+             sum.maxSpeedKmh, sum.maxInclinePct, sum.elevationGainM,
              heartRateFields(sum.averageHeartRateBpm, sum.maxHeartRateBpm).c_str(),
              static_cast<unsigned long>(sum.segmentCount), recovered ? "yes" : "");
     return String(buf);
@@ -179,7 +180,7 @@ bool Storage::recoverWalk(const String& walk) {
         f.seek(0);
     }
 
-    walk::WalkReplay replay;
+    walk::WalkReplay replay(walkSettings());
     while (f.available()) {
         const String line = f.readStringUntil('\n');
         if (!f.available() && !lastLineComplete) break;

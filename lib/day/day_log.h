@@ -16,6 +16,7 @@ struct Walk {
     int64_t startEpoch = 0;  // UTC seconds; 0 when the clock was not set
     int64_t endEpoch = 0;
     uint32_t walkSeconds = 0;  // belt moving
+    uint32_t steps = 0;        // estimated from the speed
     // A walk of this boot can be dated later from its uptime, once the clock
     // gets set. Walks loaded from flash always have a date. Not saved.
     bool thisBoot = false;
@@ -39,6 +40,7 @@ struct StripSegment {
 
 struct Today {
     uint32_t totalSeconds = 0;  // walking time toward the goal
+    uint32_t totalSteps = 0;
     int walkCount = 0;
     std::vector<StripSegment> segments;  // walks with a known time
     int nowSec = -1;                     // -1 when the clock is not set
@@ -62,10 +64,11 @@ class DayLog {
     // Forgets dated walks that ended more than two days before `nowEpoch`.
     void prune(int64_t nowEpoch);
 
-    // "start_utc,end_utc,walk_s" lines of the dated walks, plus the walk in
+    // "start_utc,end_utc,walk_s,steps" lines of the dated walks, plus the walk in
     // progress if given (so a power cut loses at most the time since the save).
     std::string toCsv(const Walk* live = nullptr) const;
     // Replaces the list with the walks of a saved CSV; bad lines are skipped.
+    // Lines saved before steps were counted have no steps: they count 0.
     void loadCsv(const std::string& csv);
 
     const std::vector<Walk>& walks() const { return walks_; }

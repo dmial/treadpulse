@@ -23,11 +23,12 @@ int64_t utc(int y, int mo, int d, int h, int mi, int s = 0) {
     return static_cast<int64_t>(timegm(&t));
 }
 
-Walk walk(int64_t start, int64_t end, uint32_t seconds) {
+Walk walk(int64_t start, int64_t end, uint32_t seconds, uint32_t steps = 0) {
     Walk w;
     w.startEpoch = start;
     w.endEpoch = end;
     w.walkSeconds = seconds;
+    w.steps = steps;
     return w;
 }
 
@@ -66,13 +67,14 @@ void test_local_seconds_of_day() {
 
 void test_today_sums_todays_walks_and_the_live_one() {
     DayLog log;
-    log.add(walk(utc(2026, 11, 10, 18, 0), utc(2026, 11, 10, 18, 40), 2400));  // yesterday
-    log.add(walk(utc(2026, 11, 11, 7, 10), utc(2026, 11, 11, 7, 40), 1750));
-    log.add(walk(utc(2026, 11, 11, 9, 30), utc(2026, 11, 11, 9, 52), 1300));
-    const Walk live = walk(utc(2026, 11, 11, 14, 0), utc(2026, 11, 11, 14, 32), 1934);
+    log.add(walk(utc(2026, 11, 10, 18, 0), utc(2026, 11, 10, 18, 40), 2400, 4200));  // yesterday
+    log.add(walk(utc(2026, 11, 11, 7, 10), utc(2026, 11, 11, 7, 40), 1750, 2890));
+    log.add(walk(utc(2026, 11, 11, 9, 30), utc(2026, 11, 11, 9, 52), 1300, 2150));
+    const Walk live = walk(utc(2026, 11, 11, 14, 0), utc(2026, 11, 11, 14, 32), 1934, 3560);
 
     const day::Today t = log.today(utc(2026, 11, 11, 14, 32), &live);
     TEST_ASSERT_EQUAL_UINT32(1750 + 1300 + 1934, t.totalSeconds);
+    TEST_ASSERT_EQUAL_UINT32(2890 + 2150 + 3560, t.totalSteps);
     TEST_ASSERT_EQUAL(3, t.walkCount);
     TEST_ASSERT_EQUAL(3, t.segments.size());
     TEST_ASSERT_EQUAL(7 * kHour + 10 * 60, t.segments[0].startSec);
@@ -148,30 +150,42 @@ void test_resolve_without_a_clock_does_nothing() {
 
 void test_csv_round_trip_keeps_dated_walks_only() {
     DayLog log;
-    log.add(walk(1762845000, 1762846800, 1750));
+    log.add(walk(1762845000, 1762846800, 1750, 2890));
     Walk undated;
     undated.thisBoot = true;
     undated.walkSeconds = 300;
     log.add(undated);
 
     const std::string csv = log.toCsv();
-    TEST_ASSERT_EQUAL_STRING("start_utc,end_utc,walk_s\n1762845000,1762846800,1750\n", csv.c_str());
+    TEST_ASSERT_EQUAL_STRING("start_utc,end_utc,walk_s,steps\n1762845000,1762846800,1750,2890\n",
+                             csv.c_str());
 
     DayLog loaded;
-    loaded.loadCsv(csv + "garbage\n5,1,10\n");
+    loaded.loadCsv(csv + "garbage\n5,1,10,20\n1,2,3,4,5\n1,2,3x\n");
     TEST_ASSERT_EQUAL(1, loaded.walks().size());
     TEST_ASSERT_EQUAL_INT64(1762845000, loaded.walks()[0].startEpoch);
     TEST_ASSERT_EQUAL_UINT32(1750, loaded.walks()[0].walkSeconds);
+    TEST_ASSERT_EQUAL_UINT32(2890, loaded.walks()[0].steps);
     TEST_ASSERT_FALSE(loaded.walks()[0].thisBoot);
+}
+
+// The day log saved by the firmware before steps were counted.
+void test_csv_from_before_steps_loads_with_no_steps() {
+    DayLog loaded;
+    loaded.loadCsv("start_utc,end_utc,walk_s\n1762845000,1762846800,1750\n");
+    TEST_ASSERT_EQUAL(1, loaded.walks().size());
+    TEST_ASSERT_EQUAL_UINT32(1750, loaded.walks()[0].walkSeconds);
+    TEST_ASSERT_EQUAL_UINT32(0, loaded.walks()[0].steps);
 }
 
 void test_csv_can_carry_the_walk_in_progress() {
     DayLog log;
-    log.add(walk(1762845000, 1762846800, 1750));
-    const Walk live = walk(1762860000, 1762861200, 1100);
+    log.add(walk(1762845000, 1762846800, 1750, 2890));
+    const Walk live = walk(1762860000, 1762861200, 1100, 1820);
     const std::string csv = log.toCsv(&live);
     TEST_ASSERT_EQUAL_STRING(
-        "start_utc,end_utc,walk_s\n1762845000,1762846800,1750\n1762860000,1762861200,1100\n",
+        "start_utc,end_utc,walk_s,steps\n1762845000,1762846800,1750,2890\n"
+        "1762860000,1762861200,1100,1820\n",
         csv.c_str());
     TEST_ASSERT_EQUAL(1, log.walks().size());  // saving does not add it
 }
@@ -202,6 +216,7 @@ int main(int, char**) {
     RUN_TEST(test_resolve_dates_walks_once_the_clock_is_set);
     RUN_TEST(test_resolve_without_a_clock_does_nothing);
     RUN_TEST(test_csv_round_trip_keeps_dated_walks_only);
+    RUN_TEST(test_csv_from_before_steps_loads_with_no_steps);
     RUN_TEST(test_csv_can_carry_the_walk_in_progress);
     RUN_TEST(test_prune_drops_walks_older_than_two_days);
     return UNITY_END();

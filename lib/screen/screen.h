@@ -1,7 +1,7 @@
-// The 800x480 dashboard, drawn with LVGL: the current walk's timer above
-// today's ring toward the daily goal, speed, incline, the pulse with its zone
-// scale and its chart over the walk, and the day strip; plus a plain message
-// screen for boot and uploads.
+// The 800x480 dashboard, drawn with LVGL: the current walk's timer and steps
+// above today's ring toward the daily goal (with today's steps inside), speed,
+// incline, the pulse with its zone scale and its chart over the walk, and the
+// day strip; plus a plain message screen for boot and uploads.
 //
 // Gray means "no live signal", per source: the treadmill's values and the
 // pulse go gray independently.
@@ -45,6 +45,7 @@ struct Model {
     float speedKmh = 0.0f;
     float inclinePct = 0.0f;
     uint32_t walkSeconds = 0;  // the current walk, or the last one
+    uint32_t walkSteps = 0;    // of the same walk
     bool walking = false;      // a walk is on; otherwise the walk shown is the last one
 
     // From the chest strap; "---" and gray while there is no fresh pulse
@@ -122,6 +123,7 @@ class Dashboard {
     lv_obj_t* lap2_ = nullptr;
     lv_obj_t* todayValue_ = nullptr;
     lv_obj_t* todayCaption_ = nullptr;
+    lv_obj_t* todaySteps_ = nullptr;
     lv_obj_t* walkCaption_ = nullptr;
     lv_obj_t* walkValue_ = nullptr;
 

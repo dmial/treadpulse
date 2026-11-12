@@ -8,11 +8,12 @@ namespace walk {
 
 const char* const kSamplesHeader =
     "time,uptime_s,state,walk_time_s,speed_kmh,incline_pct,distance_m,"
-    "treadmill_distance_m,treadmill_time_s,heart_rate_bpm";
+    "treadmill_distance_m,treadmill_time_s,heart_rate_bpm,steps";
 
 namespace {
 
-constexpr size_t kFieldCount = 10;
+constexpr size_t kFieldCount = 11;
+constexpr size_t kFieldCountBeforeSteps = 10;
 
 // Calendar arithmetic for "YYYY-MM-DDTHH:MM:SSZ" in UTC
 // (H. Hinnant's days_from_civil / civil_from_days).
@@ -148,6 +149,8 @@ std::string formatSampleRow(const SampleRow& r, const std::string& time) {
     if (r.treadmillElapsedS) line += std::to_string(*r.treadmillElapsedS);
     line += ',';
     if (r.heartRateBpm) line += std::to_string(*r.heartRateBpm);
+    line += ',';
+    if (r.steps) line += std::to_string(*r.steps);
     return line;
 }
 
@@ -156,7 +159,7 @@ std::optional<LoggedRow> parseSampleRow(const std::string& rawLine) {
     while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
 
     const std::vector<std::string> f = splitFields(line);
-    if (f.size() != kFieldCount) return std::nullopt;
+    if (f.size() != kFieldCount && f.size() != kFieldCountBeforeSteps) return std::nullopt;
 
     LoggedRow out;
     out.time = f[0];
@@ -177,6 +180,7 @@ std::optional<LoggedRow> parseSampleRow(const std::string& rawLine) {
         !parseOptional(f[9], UINT16_MAX, r.heartRateBpm)) {
         return std::nullopt;
     }
+    if (f.size() == kFieldCount && !parseOptional(f[10], UINT32_MAX, r.steps)) return std::nullopt;
     return out;
 }
 
@@ -208,6 +212,7 @@ ReplayResult WalkReplay::finish() {
         // which only sees whole-second timestamps.
         out.summary->walkMs = last_->walkSeconds * 1000;
         out.summary->distanceM = last_->distanceM;
+        if (last_->steps) out.summary->steps = *last_->steps;
     }
     return out;
 }

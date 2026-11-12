@@ -28,8 +28,18 @@ Sample withCounters(uint32_t second, float speed, uint32_t distanceM, uint16_t e
     return s;
 }
 
+// Counts steps with the example step formula of user_config.example.h.
+walk::Config withSteps() {
+    walk::Config c;
+    c.steps.base = 57.0f;
+    c.steps.perKmh = 11.4f;
+    return c;
+}
+
 // Feeds one sample per second for [from, to] and collects every event.
 struct Run {
+    explicit Run(walk::Config cfg = walk::Config()) : tracker(cfg) {}
+
     WalkTracker tracker;
     std::vector<Segment> segments;
     int sessionsStarted = 0;
@@ -418,6 +428,49 @@ void test_walk_without_strap_has_no_heart_rate() {
     TEST_ASSERT_FALSE(r.segments[0].maxHeartRateBpm.has_value());
 }
 
+void test_steps_follow_the_speed() {
+    Run r(withSteps());
+    r.span(0, 600, [](uint32_t t) { return at(t, 3.7f, 1.0f); });     // 99.2 a minute
+    r.span(601, 1200, [](uint32_t t) { return at(t, 4.7f, 11.0f); });  // 110.6 a minute
+    TEST_ASSERT_UINT32_WITHIN(1, 992 + 1106, r.tracker.steps());
+    r.span(1201, 1600, [](uint32_t t) { return at(t, 0.0f); });
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    TEST_ASSERT_EQUAL_UINT32(r.tracker.steps(), r.summaries[0].steps);
+
+    // The next walk counts from zero.
+    r.span(1601, 1661, [](uint32_t t) { return at(t, 4.0f); });  // 60 s after the first tick
+    TEST_ASSERT_UINT32_WITHIN(1, 103, r.tracker.steps());
+}
+
+void test_pause_adds_no_steps() {
+    Run r(withSteps());
+    r.span(0, 300, [](uint32_t t) { return at(t, 4.0f); });
+    r.span(301, 360, [](uint32_t t) { return at(t, 0.0f); });
+    r.span(361, 660, [](uint32_t t) { return at(t, 4.0f); });
+    // 600 s at 4.0 km/h: 102.6 steps a minute.
+    TEST_ASSERT_UINT32_WITHIN(2, 1026, r.tracker.steps());
+}
+
+void test_link_drop_is_filled_with_steps_too() {
+    Run r(withSteps());
+    auto connected = [](uint32_t t) {
+        Sample s = at(t, 3.0f);
+        s.treadmillElapsedS = static_cast<uint16_t>(t);
+        return s;
+    };
+    r.span(0, 100, connected);
+    r.span(101, 130, [](uint32_t t) { return at(t, 0.0f, 0.0f, /*fresh=*/false); });
+    r.span(131, 140, connected);
+    // 140 s of walking at 3.0 km/h, 91.2 steps a minute, the gap included.
+    TEST_ASSERT_UINT32_WITHIN(3, 213, r.tracker.steps());
+}
+
+void test_without_step_formula_no_steps() {
+    Run r;
+    r.span(0, 300, [](uint32_t t) { return at(t, 4.0f); });
+    TEST_ASSERT_EQUAL_UINT32(0, r.tracker.steps());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_idle_treadmill_starts_nothing);
@@ -446,5 +499,9 @@ int main(int, char**) {
     RUN_TEST(test_segment_heart_rate_follows_segment_boundaries);
     RUN_TEST(test_blip_pulse_stays_in_its_segment);
     RUN_TEST(test_walk_without_strap_has_no_heart_rate);
+    RUN_TEST(test_steps_follow_the_speed);
+    RUN_TEST(test_pause_adds_no_steps);
+    RUN_TEST(test_link_drop_is_filled_with_steps_too);
+    RUN_TEST(test_without_step_formula_no_steps);
     return UNITY_END();
 }

@@ -59,6 +59,7 @@ Today DayLog::today(int64_t nowEpoch, const Walk* live) const {
     auto take = [&](const Walk& w) {
         if (!counts(w, clockSet, todayKey)) return;
         t.totalSeconds += w.walkSeconds;
+        t.totalSteps += w.steps;
         ++t.walkCount;
         if (w.startEpoch == 0 || !clockSet) return;
         StripSegment s;
@@ -88,12 +89,13 @@ void DayLog::prune(int64_t nowEpoch) {
 }
 
 std::string DayLog::toCsv(const Walk* live) const {
-    std::string out = "start_utc,end_utc,walk_s\n";
+    std::string out = "start_utc,end_utc,walk_s,steps\n";
     auto put = [&out](const Walk& w) {
         if (w.startEpoch == 0) return;
-        char line[64];
-        snprintf(line, sizeof(line), "%lld,%lld,%lu\n", static_cast<long long>(w.startEpoch),
-                 static_cast<long long>(w.endEpoch), static_cast<unsigned long>(w.walkSeconds));
+        char line[80];
+        snprintf(line, sizeof(line), "%lld,%lld,%lu,%lu\n", static_cast<long long>(w.startEpoch),
+                 static_cast<long long>(w.endEpoch), static_cast<unsigned long>(w.walkSeconds),
+                 static_cast<unsigned long>(w.steps));
         out += line;
     };
     for (const Walk& w : walks_) put(w);
@@ -107,14 +109,23 @@ void DayLog::loadCsv(const std::string& csv) {
     std::string line;
     while (std::getline(in, line)) {
         long long start = 0, end = 0;
-        unsigned long seconds = 0;
+        unsigned long seconds = 0, steps = 0;
         char tail = 0;
-        if (sscanf(line.c_str(), "%lld,%lld,%lu%c", &start, &end, &seconds, &tail) != 3) continue;
+        const int n =
+            sscanf(line.c_str(), "%lld,%lld,%lu,%lu%c", &start, &end, &seconds, &steps, &tail);
+        // Four numbers, or three from before steps were counted, and nothing after them.
+        if (n == 3) {
+            if (sscanf(line.c_str(), "%lld,%lld,%lu%c", &start, &end, &seconds, &tail) != 3) continue;
+            steps = 0;
+        } else if (n != 4) {
+            continue;
+        }
         if (start <= 0 || end < start) continue;
         Walk w;
         w.startEpoch = start;
         w.endEpoch = end;
         w.walkSeconds = static_cast<uint32_t>(seconds);
+        w.steps = static_cast<uint32_t>(steps);
         walks_.push_back(w);
     }
 }

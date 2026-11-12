@@ -36,13 +36,22 @@ std::string clockAt(uint32_t second) {
     return buf;
 }
 
+// Counts steps with the example step formula of user_config.example.h.
+walk::Config withSteps() {
+    walk::Config c;
+    c.steps.base = 57.0f;
+    c.steps.perKmh = 11.4f;
+    return c;
+}
+
 // Drives a live tracker and writes the log exactly as src/main.cpp does.
 struct LiveWalk {
-    WalkTracker tracker;
+    WalkTracker tracker{withSteps()};
     std::vector<std::string> log;
     std::vector<Segment> segments;
     std::optional<Summary> summary;
     bool clockSet = true;
+    bool logSteps = true;  // false: a log written before steps were counted
 
     void feed(uint32_t second, const Sample& s) {
         const Events ev = tracker.tick(s);
@@ -59,7 +68,10 @@ struct LiveWalk {
             row.treadmillDistanceM = s.treadmillDistanceM;
             row.treadmillElapsedS = s.treadmillElapsedS;
             row.heartRateBpm = s.heartRateBpm;
-            log.push_back(walk::formatSampleRow(row, clockSet ? clockAt(second) : ""));
+            if (logSteps) row.steps = tracker.steps();
+            std::string line = walk::formatSampleRow(row, clockSet ? clockAt(second) : "");
+            if (!logSteps) line.pop_back();  // the old format had no steps column
+            log.push_back(line);
         }
         if (ev.sessionEnded) summary = ev.sessionEnded;
     }
@@ -131,6 +143,7 @@ void assertSameSummary(const Summary& expected, const Summary& actual) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, expected.maxInclinePct, actual.maxInclinePct);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, expected.elevationGainM, actual.elevationGainM);
     TEST_ASSERT_EQUAL_UINT32(expected.segmentCount, actual.segmentCount);
+    TEST_ASSERT_EQUAL_UINT32(expected.steps, actual.steps);
     TEST_ASSERT_TRUE(expected.maxHeartRateBpm.has_value());
     TEST_ASSERT_EQUAL_UINT16(*expected.maxHeartRateBpm, *actual.maxHeartRateBpm);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, *expected.averageHeartRateBpm, *actual.averageHeartRateBpm);
@@ -149,9 +162,10 @@ void test_row_round_trip() {
     r.treadmillDistanceM = 2500;
     r.treadmillElapsedS = 1800;
     r.heartRateBpm = 131;
+    r.steps = 171;
 
     const std::string line = walk::formatSampleRow(r, "2026-11-11T10:00:05Z");
-    TEST_ASSERT_EQUAL_STRING("2026-11-11T10:00:05Z,125,walk,98,4.5,2.0,123.4,2500,1800,131",
+    TEST_ASSERT_EQUAL_STRING("2026-11-11T10:00:05Z,125,walk,98,4.5,2.0,123.4,2500,1800,131,171",
                              line.c_str());
 
     const auto back = walk::parseSampleRow(line);
@@ -165,6 +179,7 @@ void test_row_round_trip() {
     TEST_ASSERT_EQUAL_UINT32(2500, *back->row.treadmillDistanceM);
     TEST_ASSERT_EQUAL_UINT16(1800, *back->row.treadmillElapsedS);
     TEST_ASSERT_EQUAL_UINT16(131, *back->row.heartRateBpm);
+    TEST_ASSERT_EQUAL_UINT32(171, *back->row.steps);
 }
 
 void test_row_without_clock_and_optional_values() {
@@ -172,7 +187,7 @@ void test_row_without_clock_and_optional_values() {
     r.uptimeMs = 7'000;
     r.activity = Activity::NoData;
     const std::string line = walk::formatSampleRow(r, "");
-    TEST_ASSERT_EQUAL_STRING(",7,no_data,0,0.0,0.0,0.0,,,", line.c_str());
+    TEST_ASSERT_EQUAL_STRING(",7,no_data,0,0.0,0.0,0.0,,,,", line.c_str());
 
     const auto back = walk::parseSampleRow(line);
     TEST_ASSERT_TRUE(back.has_value());
@@ -180,6 +195,17 @@ void test_row_without_clock_and_optional_values() {
     TEST_ASSERT_FALSE(back->row.treadmillDistanceM.has_value());
     TEST_ASSERT_FALSE(back->row.treadmillElapsedS.has_value());
     TEST_ASSERT_FALSE(back->row.heartRateBpm.has_value());
+    TEST_ASSERT_FALSE(back->row.steps.has_value());
+}
+
+// A walk cut short by a power loss under the firmware before steps, then
+// recovered by this one: its rows have one column less.
+void test_row_from_before_steps_is_read() {
+    const auto back =
+        walk::parseSampleRow("2026-11-11T10:00:05Z,125,walk,98,4.5,2.0,123.4,2500,1800,131");
+    TEST_ASSERT_TRUE(back.has_value());
+    TEST_ASSERT_EQUAL_UINT16(131, *back->row.heartRateBpm);
+    TEST_ASSERT_FALSE(back->row.steps.has_value());
 }
 
 void test_header_and_damaged_lines_are_rejected() {
@@ -193,6 +219,9 @@ void test_header_and_damaged_lines_are_rejected() {
             .has_value());
     TEST_ASSERT_FALSE(
         walk::parseSampleRow("2026-11-11T10:0,125,walk,98,4.5,2.0,123.4,2500,1800,131")
+            .has_value());
+    TEST_ASSERT_FALSE(
+        walk::parseSampleRow("2026-11-11T10:00:05Z,125,walk,98,4.5,2.0,123.4,2500,1800,131,1x")
             .has_value());
     // Zero bytes a damaged card can leave behind.
     TEST_ASSERT_FALSE(walk::parseSampleRow(std::string(40, '\0')).has_value());
@@ -271,6 +300,22 @@ void test_half_written_last_line_is_ignored() {
     assertSameSummary(*live.summary, *result.summary);
 }
 
+void test_log_from_before_steps_gets_steps_from_the_replay() {
+    LiveWalk live;
+    live.logSteps = false;
+    Treadmill mill;
+    for (uint32_t t = 0; t <= 200; ++t) live.feed(t, mill.at(t, t >= 5 ? 4.7f : 0.0f, 11.0f));
+    const std::vector<std::string> log = live.log;
+    live.endNow();
+
+    WalkReplay replay(withSteps());
+    const ReplayResult result = replayLog(log, replay);
+    TEST_ASSERT_TRUE(result.summary.has_value());
+    // 195 s at 4.7 km/h: 57 + 11.4 * 4.7 = 110.6 steps a minute.
+    TEST_ASSERT_UINT32_WITHIN(2, 359, live.summary->steps);
+    TEST_ASSERT_UINT32_WITHIN(2, live.summary->steps, result.summary->steps);
+}
+
 void test_walk_without_clock_has_empty_times() {
     LiveWalk live;
     live.clockSet = false;
@@ -316,10 +361,12 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_row_round_trip);
     RUN_TEST(test_row_without_clock_and_optional_values);
+    RUN_TEST(test_row_from_before_steps_is_read);
     RUN_TEST(test_header_and_damaged_lines_are_rejected);
     RUN_TEST(test_cut_while_walking_rebuilds_the_walk);
     RUN_TEST(test_cut_after_stopping_drops_the_trailing_pause);
     RUN_TEST(test_half_written_last_line_is_ignored);
+    RUN_TEST(test_log_from_before_steps_gets_steps_from_the_replay);
     RUN_TEST(test_walk_without_clock_has_empty_times);
     RUN_TEST(test_log_without_walking_gives_nothing);
     RUN_TEST(test_clock_jump_inside_a_walk_is_followed);

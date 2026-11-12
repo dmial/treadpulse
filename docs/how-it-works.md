@@ -18,11 +18,36 @@ The folder name is the walk number and its start time in UTC. The number keeps g
 
 **All times in the files are UTC**, e.g. `2026-11-10T08:15:23Z`. Only the clock on the screen uses the local time zone.
 
-- **`summary.csv`**: number, start, end, walking time, distance, average and top speed, top incline, elevation gain, average and top pulse, number of segments. The pulse counts only seconds when the belt moved; without a strap these columns are empty. The last column, `recovered`, is `yes` for a walk closed after a power loss.
-- **`samples.csv`**: every second: time, state (`walk` / `pause` / `no_data`), walking time, speed, incline, distance, the treadmill's own counters and the pulse.
+- **`summary.csv`**: number, start, end, walking time, distance, steps, average and top speed, top incline, elevation gain, average and top pulse, number of segments. The pulse counts only seconds when the belt moved; without a strap these columns are empty. The last column, `recovered`, is `yes` for a walk closed after a power loss.
+- **`samples.csv`**: every second: time, state (`walk` / `pause` / `no_data`), walking time, speed, incline, distance, the treadmill's own counters, the pulse and the steps so far.
 - **`segments.csv`**: how long you walked at each speed and incline, with average and top pulse. A new segment opens once speed or incline has held a new value for 3 seconds, so stepping 3.5 → 3.6 → 3.7 → 3.8 km/h with the buttons is one segment, not four.
 
 The files open in Numbers, Excel or anything that reads CSV.
+
+## Steps
+
+The treadmill doesn't count steps, so the board estimates them from the belt speed: each second of walking adds a second's worth of steps at the current speed. Steps per minute follow a straight line in speed, set in `src/user_config.h`:
+
+> steps per minute = `kStepsPerMinuteBase` + `kStepsPerMinutePerKmh` × speed in km/h
+
+The walk's steps show under its timer, today's inside the ring, and each walk's go to `summary.csv` and `samples.csv`. If the treadmill link drops mid-walk, the gap is filled at the speed the treadmill shows once it is back.
+
+The example values, 57 + 11.4 × speed, were measured on one walker, 187 cm tall: 99 steps a minute at 3.7 km/h, 111 at 4.7. Over 3.0–5.0 km/h the line was within 2 steps a minute of every count, and incline from 1 to 11 % made no difference. Your steps will differ (taller people take fewer, longer ones), so measure your own:
+
+1. Fill in a table like this one, with the speeds and inclines you actually walk at. Leave out the cells you never use.
+
+   | Incline \ speed, km/h | 3.0 | 3.5 | 4.0 | 4.5 | 5.0 |
+   |---|---|---|---|---|---|
+   | the lowest you use | | | | | |
+   | in between | | | | | |
+   | the steepest you use | | | | | |
+
+2. After changing speed or incline, walk 30 seconds before counting, so the step settles.
+3. Count for exactly one minute by a timer. Counting one foot and doubling is easier than counting every step.
+4. Count the cells you walk at most three times, on different walks, and take the average: one count by hand is off by 2–3 steps.
+5. If the rows come out alike, incline doesn't matter: fit one straight line through all the counts. Any spreadsheet does it (`INTERCEPT` and `SLOPE`, or a trend line on a chart): the intercept is `kStepsPerMinuteBase`, the slope is `kStepsPerMinutePerKmh`. If the rows differ by more than a few steps, fit the line to the incline you walk at most; the formula has no incline term.
+
+Outside the measured speeds, such as the seconds of speeding up and slowing down, the estimate is rougher, but those seconds barely move a walk's total.
 
 ## Uploads
 
@@ -71,7 +96,7 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `src/beeper.*` | Beeps through the speaker (I2S) |
 | `src/board.h` | Board pins, from Freenove's examples |
 | `src/secrets.example.h` | Template for `src/secrets.h`: Wi-Fi, receiver address and key |
-| `src/user_config.example.h` | Template for `src/user_config.h`: daily goal, zones, thresholds, time zone |
+| `src/user_config.example.h` | Template for `src/user_config.h`: daily goal, zones, thresholds, time zone, step formula |
 | `partitions.csv` | Memory layout: two 3 MB firmware slots, ~9.9 MB for walks |
 | `cloud/` | The receiver: a Cloudflare Worker that stores files in R2 |
 | `test/` | Tests for `lib/`, run on a computer: `pio test -e native` |

@@ -28,6 +28,7 @@
 #error "src/user_config.h is missing: copy src/user_config.example.h to src/user_config.h and fill it in"
 #endif
 #include "walk_history.h"
+#include "walk_settings.h"
 #include "walk_tracker.h"
 
 namespace {
@@ -54,7 +55,7 @@ constexpr uint32_t kDaySaveMs = 60 * 1000;
 
 TreadmillLink treadmill;
 HeartRateLink heartRate;
-walk::WalkTracker tracker;
+walk::WalkTracker tracker(walkSettings());
 walk::History history;  // the current (or last kept) walk, for the chart
 // The last kept walk's chart, while the new walk may still prove too short to keep.
 walk::History previousHistory;
@@ -73,6 +74,7 @@ bool netNow = false;
 uint32_t netDueMs = 0;
 uint32_t lastStopCount = 0;  // the treadmill's stop reports already passed on
 uint32_t keptWalkSeconds = 0;  // the last kept walk's time, shown between walks
+uint32_t keptWalkSteps = 0;
 bool wasLinkUp = false;
 bool wasMoving = false;
 
@@ -89,7 +91,7 @@ void showMessage(const char* title, const char* detail = "") {
 }
 
 // A walk as the day log sees it, from uptime to wall clock (0 without a clock).
-day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds) {
+day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds, uint32_t steps) {
     day::Walk w;
     w.thisBoot = true;
     w.startUptimeMs = startMs;
@@ -97,6 +99,7 @@ day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds) {
     w.startEpoch = clocksync::epochAtUptime(startMs);
     w.endEpoch = clocksync::epochAtUptime(endMs);
     w.walkSeconds = walkSeconds;
+    w.steps = steps;
     return w;
 }
 
@@ -170,6 +173,7 @@ void tick(uint32_t now) {
         row.treadmillDistanceM = sample.treadmillDistanceM;
         row.treadmillElapsedS = sample.treadmillElapsedS;
         row.heartRateBpm = sample.heartRateBpm;
+        row.steps = tracker.steps();
         storage.appendSample(row);
     }
     if (tracker.inSession()) {
@@ -178,7 +182,8 @@ void tick(uint32_t now) {
 
     // The day: finished walks go to the day log; the one in progress counts live.
     const int64_t epoch = nowEpoch();
-    const day::Walk live = dayWalk(tracker.sessionStartMs(), now, tracker.walkSeconds());
+    const day::Walk live =
+        dayWalk(tracker.sessionStartMs(), now, tracker.walkSeconds(), tracker.steps());
     const day::Walk* liveWalk = tracker.inSession() ? &live : nullptr;
     if (ev.sessionEnded) {
         const walk::Summary& sum = *ev.sessionEnded;
@@ -187,9 +192,10 @@ void tick(uint32_t now) {
             // The walk ended after the belt stopped (seconds after a reported stop,
             // minutes otherwise); that tail is not walking.
             history.trimTo((sum.endMs - sum.startMs) / 1000 + 1);
-            dayLog.add(dayWalk(sum.startMs, sum.endMs, sum.walkSeconds()));
+            dayLog.add(dayWalk(sum.startMs, sum.endMs, sum.walkSeconds(), sum.steps));
             dayLog.prune(epoch);
             keptWalkSeconds = sum.walkSeconds();
+            keptWalkSteps = sum.steps;
             netNow = true;
             netDueMs = now + kNetAfterWalkMs;
         } else {
@@ -218,6 +224,7 @@ void tick(uint32_t now) {
     m.speedKmh = sample.speedKmh;
     m.inclinePct = sample.inclinePct;
     m.walkSeconds = tracker.inSession() ? tracker.walkSeconds() : keptWalkSeconds;
+    m.walkSteps = tracker.inSession() ? tracker.steps() : keptWalkSteps;
     m.walking = tracker.inSession();
     m.pulseUp = heartRateUp;
     m.bpm = hr.bpm;

@@ -81,12 +81,27 @@ struct Summary {
     // Over the seconds the belt was moving and the strap gave a pulse; empty without a strap.
     std::optional<float> averageHeartRateBpm;
     std::optional<uint16_t> maxHeartRateBpm;
+    uint32_t steps = 0;  // estimated from the speed (StepFormula)
 
     uint32_t walkSeconds() const { return roundedSeconds(walkMs); }
     bool worthKeeping() const { return walkSeconds() >= kMinKeptWalkS; }
     float averageSpeedKmh() const {
         return walkMs == 0 ? 0.0f : distanceM / (walkMs / 3600000.0f) / 1000.0f;
     }
+};
+
+// The treadmill doesn't count steps, so they are estimated from the belt speed:
+// steps per minute grow along a straight line with the speed, measured on the
+// walker (user_config.h). All zero: no steps counted.
+struct StepFormula {
+    float base = 0.0f;    // steps per minute at 0 km/h: where the line starts
+    float perKmh = 0.0f;  // extra steps per minute for each km/h
+
+    float perMinute(float speedKmh) const {
+        const float v = base + perKmh * speedKmh;
+        return v > 0.0f ? v : 0.0f;
+    }
+    float over(float speedKmh, uint32_t ms) const { return perMinute(speedKmh) * ms / 60000.0f; }
 };
 
 struct Events {
@@ -103,6 +118,7 @@ struct Config {
     uint32_t stableMs = 3000;      // a new speed/incline must hold this long to open a segment
     float movingThresholdKmh = 0.05f;
     uint32_t maxTickGapMs = 2000;  // clamp for the time step between samples
+    StepFormula steps;
 };
 
 class WalkTracker {
@@ -119,6 +135,8 @@ class WalkTracker {
     // Walking time of the current session, or of the last one after it ended.
     uint32_t walkSeconds() const { return roundedSeconds(walkMs_); }
     float distanceM() const { return distanceM_; }
+    // Steps of the current session, or of the last one after it ended.
+    uint32_t steps() const { return static_cast<uint32_t>(steps_ + 0.5f); }
     Activity lastActivity() const { return lastActivity_; }
     uint32_t sessionStartMs() const { return sessionStartMs_; }
 
@@ -170,6 +188,7 @@ class WalkTracker {
 
     uint32_t walkMs_ = 0;
     float distanceM_ = 0.0f;
+    float steps_ = 0.0f;
     float elevationGainM_ = 0.0f;
     float maxSpeedKmh_ = 0.0f;
     float maxInclinePct_ = 0.0f;

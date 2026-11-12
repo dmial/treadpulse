@@ -25,6 +25,8 @@ struct SampleRow {
     std::optional<uint32_t> treadmillDistanceM;
     std::optional<uint16_t> treadmillElapsedS;
     std::optional<uint16_t> heartRateBpm;
+    // Steps so far in the walk; empty in a log written before steps were counted.
+    std::optional<uint32_t> steps;
 };
 
 // A row read back from the log. The log keeps whole seconds of uptime.
@@ -36,8 +38,9 @@ struct LoggedRow {
 // One CSV line without the line break. `time` is "" when the clock is not set.
 std::string formatSampleRow(const SampleRow& r, const std::string& time);
 
-// Reads a line written by formatSampleRow. Returns nullopt for the header and
-// for a damaged line (e.g. half-written when the power went out).
+// Reads a line written by formatSampleRow, or by a firmware before steps were
+// counted (one column less). Returns nullopt for the header and for a damaged
+// line (e.g. half-written when the power went out).
 std::optional<LoggedRow> parseSampleRow(const std::string& line);
 
 struct ReplayResult {
@@ -49,6 +52,9 @@ struct ReplayResult {
 // feeding its rows through the same WalkTracker that produced them live.
 class WalkReplay {
    public:
+    // The step formula only counts for a log without steps in it.
+    explicit WalkReplay(Config cfg = Config()) : tracker_(cfg) {}
+
     // Rows of one log, in file order.
     void add(const LoggedRow& logged);
 

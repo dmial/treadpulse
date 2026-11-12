@@ -32,6 +32,14 @@ constexpr const char* kPulseIntervalName = "VT2";  // second ventilatory thresho
 // corridor of its middle values with the average inside, the number on the right.
 constexpr uint32_t kPulseLevelMinutes = 5;
 
+// Steps are estimated from the belt speed (the treadmill doesn't count them):
+//   steps per minute = kStepsPerMinuteBase + kStepsPerMinutePerKmh * speed in km/h
+// These values were measured on one walker, 187 cm tall, at 3.0-5.0 km/h; incline
+// from 1 to 11 % made no difference. Yours will differ: how to measure them is in
+// docs/how-it-works.md, "Steps".
+constexpr float kStepsPerMinuteBase = 57.0f;
+constexpr float kStepsPerMinutePerKmh = 11.4f;
+
 // Local time zone as a POSIX TZ string, for the clock and the day boundaries.
 // Examples: "GMT0BST,M3.5.0/1,M10.5.0" (London), "CET-1CEST,M3.5.0,M10.5.0/3"
 // (Berlin, Paris), "EST5EDT,M3.2.0,M11.1.0" (New York), "PST8PDT,M3.2.0,M11.1.0"
@@ -57,6 +65,8 @@ static_assert(zoneBordersAscend(), "heart rate zone borders must go up");
 static_assert(kPulseCeilingBpm < kPulseIntervalBpm, "the ceiling must be below the interval line");
 static_assert(kDailyGoalMinutes > 0, "the daily goal must be above zero");
 static_assert(kPulseLevelMinutes > 0, "the pulse level needs at least a minute");
+static_assert(kStepsPerMinuteBase + kStepsPerMinutePerKmh * 3.0f > 0.0f,
+              "the step formula must give steps at walking speed");
 static_assert(kDayResetHour >= 0 && kDayResetHour <= 23, "reset hour is 0..23");
 static_assert(kDayStripStartHour >= 0 && kDayStripStartHour < kDayStripEndHour &&
                   kDayStripEndHour <= 24,

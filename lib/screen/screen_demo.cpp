@@ -55,6 +55,9 @@ std::vector<Key> endingAt(float bpm) {
     return keys;
 }
 
+// Steps at about 105 a minute, a usual walking pace.
+uint32_t stepsOver(uint32_t seconds) { return seconds * 105 / 60; }
+
 constexpr uint32_t kWalkSeconds = 32 * 60 + 14;
 constexpr uint32_t kMorningWalks = 1750 + 1300;  // 7:10-7:40 and 9:30-9:52
 
@@ -134,10 +137,12 @@ Model scene(int i, uint32_t goalSeconds) {
 
     const walk::History h = makeWalk(seconds, keys);
     m.walkSeconds = h.seconds();
+    m.walkSteps = stepsOver(m.walkSeconds);
     m.columns = h.columns(kChartColumns, kChartMinSpanS);
     m.chartSpanS = h.spanSeconds(kChartMinSpanS);
     m.today.segments.back().walkSeconds = m.walkSeconds;
     m.today.totalSeconds = earlier + m.walkSeconds;
+    m.today.totalSteps = stepsOver(m.today.totalSeconds);
     m.today.walkCount = static_cast<int>(m.today.segments.size());
     return m;
 }

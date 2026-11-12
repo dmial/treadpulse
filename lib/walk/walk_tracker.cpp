@@ -85,6 +85,7 @@ Events WalkTracker::tick(const Sample& s) {
     if (s.treadmillStopped) stopReportMs_ = s.uptimeMs;
     if (a == Activity::Walk) {
         walkMs_ += dtMs;
+        steps_ += cfg_.steps.over(s.speedKmh, dtMs);
         lastWalkMs_ = s.uptimeMs;
         maxSpeedKmh_ = std::max(maxSpeedKmh_, s.speedKmh);
         maxInclinePct_ = std::max(maxInclinePct_, s.inclinePct);
@@ -107,6 +108,7 @@ void WalkTracker::startSession(const Sample& s, Events& ev) {
 
     walkMs_ = 0;
     distanceM_ = 0.0f;
+    steps_ = 0.0f;
     elevationGainM_ = 0.0f;
     maxSpeedKmh_ = s.speedKmh;
     maxInclinePct_ = s.inclinePct;
@@ -171,7 +173,11 @@ void WalkTracker::fillGapFromTreadmillClock(const Sample& s) {
         const uint32_t wallMs = s.uptimeMs - uptimeAtLastElapsed_ + 1000u;
         const uint32_t ourMs = walkMs_ - walkMsAtLastElapsed_;
         const uint32_t credibleMs = std::min(treadmillMs, wallMs);
-        if (credibleMs > ourMs + 2000u) walkMs_ += credibleMs - ourMs;
+        if (credibleMs > ourMs + 2000u) {
+            walkMs_ += credibleMs - ourMs;
+            // The speed during the gap is unknown: the one after it stands in.
+            steps_ += cfg_.steps.over(s.speedKmh, credibleMs - ourMs);
+        }
     }
 
     lastElapsedS_ = e;
@@ -249,6 +255,7 @@ void WalkTracker::closeSession(Events& ev) {
     sum.segmentCount = segmentCount_;
     sum.averageHeartRateBpm = walkHeartRate_.average();
     sum.maxHeartRateBpm = walkHeartRate_.maximum();
+    sum.steps = steps();
     ev.sessionEnded = sum;
 
     inSession_ = false;
