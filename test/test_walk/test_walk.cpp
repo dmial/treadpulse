@@ -20,6 +20,14 @@ Sample at(uint32_t second, float speed, float incline = 0.0f, bool fresh = true)
     return s;
 }
 
+// With the treadmill's own distance and workout clock.
+Sample withCounters(uint32_t second, float speed, uint32_t distanceM, uint16_t elapsedS) {
+    Sample s = at(second, speed);
+    s.treadmillDistanceM = distanceM;
+    s.treadmillElapsedS = elapsedS;
+    return s;
+}
+
 // Feeds one sample per second for [from, to] and collects every event.
 struct Run {
     WalkTracker tracker;
@@ -54,6 +62,20 @@ void test_walking_time_counts_seconds_while_moving() {
     r.span(0, 60, [](uint32_t t) { return at(t, 3.5f); });
     TEST_ASSERT_EQUAL(1, r.sessionsStarted);
     TEST_ASSERT_EQUAL_UINT32(60, r.tracker.walkSeconds());
+}
+
+// The main loop runs each tick a few ms late, by a different amount each time.
+// The walk starts on a late tick, so many later ticks are less late than it:
+// the shown timer must still step by exactly one second per tick.
+void test_walking_time_steps_one_second_despite_tick_jitter() {
+    Run r;
+    const uint32_t lateMs[] = {6, 0, 3, 8, 1, 5, 0, 7, 2, 4};
+    for (uint32_t t = 0; t <= 100; ++t) {
+        Sample s = at(t, 3.5f);
+        s.uptimeMs += lateMs[t % 10];
+        r.feed(s);
+        TEST_ASSERT_EQUAL_UINT32(t, r.tracker.walkSeconds());
+    }
 }
 
 void test_speed_ramp_makes_one_boundary_at_first_change() {
@@ -211,6 +233,98 @@ void test_pause_while_connected_is_not_backfilled() {
     TEST_ASSERT_EQUAL_UINT32(110, r.tracker.walkSeconds());
 }
 
+// A lone all-zero reading (the Merach W50 glitch, should it get past the
+// link's filter) must not make the whole counter count twice.
+void test_zero_counter_reading_does_not_add_distance_twice() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return withCounters(t, 3.6f, t, t); });  // 1 m/s
+    r.feed(withCounters(101, 0.0f, 0, 0));
+    r.span(102, 200, [](uint32_t t) { return withCounters(t, 3.6f, t, t); });
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 200.0f, r.tracker.distanceM());
+}
+
+// A pause on the treadmill zeroes its counters; resuming brings them back.
+void test_pause_zeroes_counters_and_resume_carries_on() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return withCounters(t, 3.6f, t, t); });
+    r.span(101, 103, [](uint32_t t) { return withCounters(t, 0.0f, 100, 100); });
+    r.span(104, 130, [](uint32_t t) { return withCounters(t, 0.0f, 0, 0); });
+    r.span(131, 230, [](uint32_t t) { return withCounters(t, 3.6f, t - 31, t - 31); });
+
+    TEST_ASSERT_EQUAL(1, r.sessionsStarted);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 199.0f, r.tracker.distanceM());
+    TEST_ASSERT_EQUAL_UINT32(200, r.tracker.walkSeconds());
+}
+
+// The link drops during a pause, while the treadmill's clock reads 0: the
+// pause must not be taken for walking once the clock comes back.
+void test_link_drop_during_pause_is_not_walking() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return withCounters(t, 3.6f, t, t); });
+    r.span(101, 103, [](uint32_t t) { return withCounters(t, 0.0f, 100, 100); });
+    r.span(104, 110, [](uint32_t t) { return withCounters(t, 0.0f, 0, 0); });
+    r.span(111, 170, [](uint32_t t) { return at(t, 0.0f, 0.0f, /*fresh=*/false); });
+    r.span(171, 180, [](uint32_t t) { return withCounters(t, 3.6f, t - 71, t - 71); });
+
+    TEST_ASSERT_UINT32_WITHIN(1, 110, r.tracker.walkSeconds());
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 109.0f, r.tracker.distanceM());
+}
+
+// After a stop the treadmill starts a new workout from 0.
+void test_new_workout_after_stop_counts_from_zero() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return withCounters(t, 3.6f, t, t); });
+    r.span(101, 120, [](uint32_t t) { return withCounters(t, 0.0f, 0, 0); });
+    r.span(121, 150, [](uint32_t t) { return withCounters(t, 3.6f, t - 120, t - 120); });
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 130.0f, r.tracker.distanceM());
+}
+
+void test_reported_stop_ends_walk_right_away() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return at(t, 3.0f); });
+    r.span(101, 104, [](uint32_t t) { return at(t, 0.0f); });
+    Sample stop = at(105, 0.0f);
+    stop.treadmillStopped = true;
+    r.feed(stop);
+
+    TEST_ASSERT_FALSE(r.tracker.inSession());
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    TEST_ASSERT_EQUAL_UINT32(101000, r.summaries[0].endMs);
+    TEST_ASSERT_EQUAL_UINT32(100000, r.summaries[0].walkMs);
+    TEST_ASSERT_EQUAL(1, r.segments.size());
+    TEST_ASSERT_EQUAL(Activity::Walk, r.segments[0].activity);
+
+    // Walking again after a stop is a new walk.
+    r.span(106, 110, [](uint32_t t) { return at(t, 3.0f); });
+    TEST_ASSERT_EQUAL(2, r.sessionsStarted);
+}
+
+void test_stop_reported_just_before_the_belt_stops() {
+    Run r;
+    r.span(0, 99, [](uint32_t t) { return at(t, 3.0f); });
+    Sample report = at(100, 3.0f);
+    report.treadmillStopped = true;
+    r.feed(report);
+    TEST_ASSERT_TRUE(r.tracker.inSession());
+
+    r.feed(at(101, 0.0f));
+    TEST_ASSERT_FALSE(r.tracker.inSession());
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    TEST_ASSERT_EQUAL_UINT32(101000, r.summaries[0].endMs);
+    TEST_ASSERT_EQUAL_UINT32(100000, r.summaries[0].walkMs);
+}
+
+void test_stop_report_while_belt_keeps_moving_is_dropped() {
+    Run r;
+    r.span(0, 99, [](uint32_t t) { return at(t, 3.0f); });
+    Sample report = at(100, 3.0f);
+    report.treadmillStopped = true;
+    r.feed(report);
+    r.span(101, 200, [](uint32_t t) { return at(t, 3.0f); });
+    r.span(201, 260, [](uint32_t t) { return at(t, 0.0f); });  // a pause, later on
+    TEST_ASSERT_TRUE(r.tracker.inSession());
+}
+
 void test_heart_rate_summary_counts_walking_seconds_only() {
     Run r;
     auto withPulse = [](uint32_t t, float speed, uint16_t bpm) {
@@ -282,6 +396,7 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_idle_treadmill_starts_nothing);
     RUN_TEST(test_walking_time_counts_seconds_while_moving);
+    RUN_TEST(test_walking_time_steps_one_second_despite_tick_jitter);
     RUN_TEST(test_speed_ramp_makes_one_boundary_at_first_change);
     RUN_TEST(test_short_blip_does_not_split_segment);
     RUN_TEST(test_incline_change_closes_segment);
@@ -293,6 +408,13 @@ int main(int, char**) {
     RUN_TEST(test_elevation_gain_from_incline);
     RUN_TEST(test_link_drop_is_filled_from_treadmill_clock);
     RUN_TEST(test_pause_while_connected_is_not_backfilled);
+    RUN_TEST(test_zero_counter_reading_does_not_add_distance_twice);
+    RUN_TEST(test_pause_zeroes_counters_and_resume_carries_on);
+    RUN_TEST(test_link_drop_during_pause_is_not_walking);
+    RUN_TEST(test_new_workout_after_stop_counts_from_zero);
+    RUN_TEST(test_reported_stop_ends_walk_right_away);
+    RUN_TEST(test_stop_reported_just_before_the_belt_stops);
+    RUN_TEST(test_stop_report_while_belt_keeps_moving_is_dropped);
     RUN_TEST(test_heart_rate_summary_counts_walking_seconds_only);
     RUN_TEST(test_segment_heart_rate_follows_segment_boundaries);
     RUN_TEST(test_blip_pulse_stays_in_its_segment);

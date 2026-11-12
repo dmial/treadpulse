@@ -39,6 +39,9 @@ constexpr uint32_t kNtpTimeoutMs = 10000;
 constexpr uint32_t kBootUploadBudgetMs = 30000;
 constexpr uint32_t kUploadBudgetMs = 120000;
 constexpr uint32_t kNetRetryMs = 10UL * 60 * 1000;          // after a failed attempt
+// A walk ends seconds after stop is pressed, so Wi-Fi waits this long: a walk
+// started again right away is not held up by the upload.
+constexpr uint32_t kNetAfterWalkMs = 60UL * 1000;
 // Without a clock the day ring cannot tell today's saved walks from older ones
 // and shows only this boot's, so a missing clock is retried sooner.
 constexpr uint32_t kClockRetryMs = 60UL * 1000;
@@ -61,7 +64,10 @@ uint32_t nextTickMs = 0;
 uint32_t lastNetMs = 0;
 uint32_t lastClockSyncMs = 0;
 uint32_t lastDaySaveMs = 0;
-bool netNow = false;  // a walk just ended: go online without waiting for the retry
+// A walk just ended: go online at netDueMs without waiting for the retry.
+bool netNow = false;
+uint32_t netDueMs = 0;
+uint32_t lastStopCount = 0;  // the treadmill's stop reports already passed on
 bool wasLinkUp = false;
 bool wasMoving = false;
 
@@ -112,8 +118,12 @@ void netSession(uint32_t uploadBudgetMs) {
 void maybeNetSession(uint32_t now) {
     if (tracker.inSession()) return;
     if (!clockDue(now) && storage.pendingCount() == 0) return;
-    const uint32_t retryMs = clocksync::isSynced() ? kNetRetryMs : kClockRetryMs;
-    if (!netNow && now - lastNetMs < retryMs) return;
+    if (netNow) {
+        if (static_cast<int32_t>(now - netDueMs) < 0) return;
+    } else {
+        const uint32_t retryMs = clocksync::isSynced() ? kNetRetryMs : kClockRetryMs;
+        if (now - lastNetMs < retryMs) return;
+    }
     netSession(kUploadBudgetMs);
 }
 
@@ -131,6 +141,9 @@ void tick(uint32_t now) {
     sample.treadmillDistanceM = snap.state.totalDistanceM;
     sample.treadmillElapsedS = snap.state.elapsedTimeS;
     if (heartRateUp) sample.heartRateBpm = hr.bpm;
+    sample.treadmillStopped = snap.stopCount != lastStopCount;
+    lastStopCount = snap.stopCount;
+    if (sample.treadmillStopped) Serial.println("[walk] the treadmill reported a stop");
 
     const walk::Events ev = tracker.tick(sample);
 
@@ -164,12 +177,14 @@ void tick(uint32_t now) {
     if (ev.sessionEnded) {
         const walk::Summary& sum = *ev.sessionEnded;
         storage.finishWalk(sum);
-        // The walk ended minutes after the belt stopped; that tail is not walking.
+        // The walk ended after the belt stopped (seconds after a reported stop,
+        // minutes otherwise); that tail is not walking.
         history.trimTo((sum.endMs - sum.startMs) / 1000 + 1);
-        dayLog.add(dayWalk(sum.startMs, sum.endMs, sum.walkMs / 1000));
+        dayLog.add(dayWalk(sum.startMs, sum.endMs, sum.walkSeconds()));
         dayLog.prune(epoch);
         saveDay(nullptr);
         netNow = true;
+        netDueMs = now + kNetAfterWalkMs;
     }
     if (dayLog.resolve(epoch, now)) saveDay(liveWalk);  // the clock just got set
     if (liveWalk && now - lastDaySaveMs >= kDaySaveMs) {

@@ -1,7 +1,7 @@
 // Bluetooth LE client link: finds a device advertising a given service,
-// subscribes to one of its notify characteristics and reconnects on its own.
-// All links share one scanner, so the treadmill and the heart rate strap are
-// found and kept connected at the same time.
+// subscribes to one of its notify characteristics (plus optional ones) and
+// reconnects on its own. All links share one scanner, so the treadmill and the
+// heart rate strap are found and kept connected at the same time.
 #pragma once
 
 #include <Arduino.h>
@@ -10,6 +10,7 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <vector>
 
 class BleLink {
    public:
@@ -18,6 +19,10 @@ class BleLink {
 
     // tag: short name for the serial log, e.g. "ble" or "hr".
     BleLink(const char* tag, uint16_t serviceUuid, uint16_t characteristicUuid);
+
+    // Also subscribes to this characteristic of the same service when the
+    // device has it; a device without it still connects. Call before begin().
+    void listenAlso(uint16_t characteristicUuid, NotifyHandler onNotify);
 
     // Connects to the first device found that advertises the service.
     void begin(NotifyHandler onNotify);
@@ -43,13 +48,20 @@ class BleLink {
         BleLink* link_;
     };
 
+    struct Optional {
+        NimBLEUUID characteristic;
+        NotifyHandler onNotify;
+    };
+
     bool needsDevice() const;
     bool connect();
+    void subscribeOptional(NimBLERemoteService* service);
 
     const char* tag_;
     NimBLEUUID service_;
     NimBLEUUID characteristic_;
     NotifyHandler onNotify_;
+    std::vector<Optional> optional_;  // filled before begin(), read-only after
     std::string deviceName_;
 
     std::atomic<bool> connected_{false};

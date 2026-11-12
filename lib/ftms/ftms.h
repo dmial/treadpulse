@@ -1,6 +1,6 @@
-// Parser for the Bluetooth Fitness Machine Service (FTMS) "Treadmill Data"
-// characteristic (UUID 0x2ACD). Pure C++, no Arduino dependencies, so it can be
-// unit-tested on the host.
+// Parsers for the Bluetooth Fitness Machine Service (FTMS) "Treadmill Data"
+// (UUID 0x2ACD) and "Fitness Machine Status" (UUID 0x2ADA) characteristics.
+// Pure C++, no Arduino dependencies, so it can be unit-tested on the host.
 #pragma once
 
 #include <cstddef>
@@ -50,5 +50,40 @@ struct TreadmillState {
 
     void merge(const TreadmillData& d);
 };
+
+// Drops a glitch the Merach W50 sends about once a walk, around minute 12-15:
+// one notification with speed, distance and workout time all zero while the
+// belt keeps moving, then the old values again. A real stop looks different:
+// the speed drops to 0 while distance and time still hold their values, and
+// only seconds later do those go to 0 as well.
+class ZeroGlitchFilter {
+   public:
+    // A glitch is suspected only this soon after the last notification taken
+    // while the belt moved: zeros that keep coming longer, or that arrive
+    // after a gap in the link, are a real stop.
+    static constexpr uint32_t kHoldMs = 2000;
+
+    // Whether notification `d`, received at `nowMs`, should be merged into
+    // `state`. While a glitch is suspected, the speed-only notifications that
+    // follow it are held back too.
+    bool pass(const TreadmillState& state, const TreadmillData& d, uint32_t nowMs);
+
+   private:
+    std::optional<uint32_t> lastPassMs_;
+    bool holding_ = false;
+};
+
+// What a Fitness Machine Status notification reports. Only the events the
+// display acts on are told apart; everything else is Other.
+enum class MachineEvent : uint8_t {
+    Other,
+    Stopped,     // stop pressed: the treadmill's workout is over
+    Paused,      // pause pressed: the workout goes on after it
+    SafetyStop,  // stopped by the safety key
+    Started,     // started, or resumed after a pause
+};
+
+// Decodes a Fitness Machine Status payload; std::nullopt when it is empty.
+std::optional<MachineEvent> parseMachineStatus(const uint8_t* data, size_t len);
 
 }  // namespace ftms

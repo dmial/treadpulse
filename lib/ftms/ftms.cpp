@@ -114,4 +114,38 @@ void TreadmillState::merge(const TreadmillData& d) {
     if (d.totalEnergyKcal) totalEnergyKcal = d.totalEnergyKcal;
 }
 
+bool ZeroGlitchFilter::pass(const TreadmillState& state, const TreadmillData& d,
+                            uint32_t nowMs) {
+    const bool moving =
+        state.speedKmh > 0.0f && lastPassMs_ && nowMs - *lastPassMs_ < kHoldMs;
+    const bool zeroSpeed = d.speedKmh && *d.speedKmh == 0.0f;
+    const bool zeroTotals = d.totalDistanceM && *d.totalDistanceM == 0 && d.elapsedTimeS &&
+                            *d.elapsedTimeS == 0;
+    const bool noTotals = !d.totalDistanceM && !d.elapsedTimeS;
+    if (moving && zeroSpeed && (zeroTotals || (holding_ && noTotals))) {
+        holding_ = true;
+        return false;
+    }
+    holding_ = false;
+    lastPassMs_ = nowMs;
+    return true;
+}
+
+std::optional<MachineEvent> parseMachineStatus(const uint8_t* data, size_t len) {
+    if (data == nullptr || len < 1) return std::nullopt;
+    switch (data[0]) {
+        case 0x02:  // stopped or paused by the user; the parameter tells which
+            if (len < 2) return MachineEvent::Other;
+            if (data[1] == 0x01) return MachineEvent::Stopped;
+            if (data[1] == 0x02) return MachineEvent::Paused;
+            return MachineEvent::Other;
+        case 0x03:
+            return MachineEvent::SafetyStop;
+        case 0x04:
+            return MachineEvent::Started;
+        default:
+            return MachineEvent::Other;
+    }
+}
+
 }  // namespace ftms

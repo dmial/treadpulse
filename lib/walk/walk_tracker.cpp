@@ -77,13 +77,12 @@ Events WalkTracker::tick(const Sample& s) {
 
     if (!inSession_) {
         // Keep the treadmill counters as a baseline so the first session delta is right.
-        if (s.fresh) {
-            if (s.treadmillDistanceM) lastTreadmillDistanceM_ = s.treadmillDistanceM;
-        }
+        if (s.fresh && s.treadmillDistanceM) countTreadmillDistance(*s.treadmillDistanceM);
         if (a == Activity::Walk) startSession(s, ev);
         return ev;
     }
 
+    if (s.treadmillStopped) stopReportMs_ = s.uptimeMs;
     if (a == Activity::Walk) {
         walkMs_ += dtMs;
         lastWalkMs_ = s.uptimeMs;
@@ -113,6 +112,7 @@ void WalkTracker::startSession(const Sample& s, Events& ev) {
     maxInclinePct_ = s.inclinePct;
     segmentCount_ = 0;
     lastWalkMs_ = s.uptimeMs;
+    stopReportMs_.reset();
     walkHeartRate_ = HeartRateStats{};
     walkHeartRate_.add(s.heartRateBpm);
 
@@ -132,12 +132,7 @@ void WalkTracker::updateDistance(const Sample& s, Activity a, uint32_t dtMs) {
     float delta = 0.0f;
     if (s.treadmillDistanceM) {
         // Prefer the treadmill's own counter: it also covers time we were disconnected.
-        const uint32_t now = *s.treadmillDistanceM;
-        if (lastTreadmillDistanceM_ && now >= *lastTreadmillDistanceM_) {
-            delta = static_cast<float>(now - *lastTreadmillDistanceM_);
-        }
-        // A smaller value means the treadmill reset its counter; just re-baseline.
-        lastTreadmillDistanceM_ = now;
+        delta = countTreadmillDistance(*s.treadmillDistanceM);
     } else if (a == Activity::Walk) {
         delta = s.speedKmh / 3.6f * (dtMs / 1000.0f);
     }
@@ -146,8 +141,26 @@ void WalkTracker::updateDistance(const Sample& s, Activity a, uint32_t dtMs) {
     if (s.inclinePct > 0.0f) elevationGainM_ += delta * s.inclinePct / 100.0f;
 }
 
+// Meters the treadmill's counter moved since its last reading. A 0 is not a
+// reading: the counter shows 0 during a pause and comes back where it was. A
+// smaller value means a new workout after a stop, counted from 0.
+float WalkTracker::countTreadmillDistance(uint32_t counterM) {
+    if (counterM == 0) {
+        if (!lastTreadmillDistanceM_) lastTreadmillDistanceM_ = 0u;  // a workout about to start
+        return 0.0f;
+    }
+    float delta = 0.0f;
+    if (lastTreadmillDistanceM_) {
+        const uint32_t last = *lastTreadmillDistanceM_;
+        delta = static_cast<float>(counterM >= last ? counterM - last : counterM);
+    }
+    lastTreadmillDistanceM_ = counterM;
+    return delta;
+}
+
 void WalkTracker::fillGapFromTreadmillClock(const Sample& s) {
-    if (!s.fresh || !s.treadmillElapsedS) return;
+    // As with distance, a 0 on the treadmill's clock is a pause or a stop, not a reading.
+    if (!s.fresh || !s.treadmillElapsedS || *s.treadmillElapsedS == 0) return;
     const uint16_t e = *s.treadmillElapsedS;
     if (lastElapsedS_ && e == *lastElapsedS_) return;  // no new clock value yet
 
@@ -203,8 +216,12 @@ Events WalkTracker::endSession() {
 }
 
 void WalkTracker::maybeEndSession(const Sample& s, Activity a, Events& ev) {
+    if (stopReportMs_ && s.uptimeMs - *stopReportMs_ > cfg_.stopReportWindowMs) {
+        stopReportMs_.reset();  // the belt kept moving: not a stop after all
+    }
     if (a == Activity::Walk) return;
-    if (s.uptimeMs - lastWalkMs_ < cfg_.endAfterIdleMs) return;
+    // A stop on the treadmill ends its workout: no need to wait out the idle time.
+    if (!stopReportMs_ && s.uptimeMs - lastWalkMs_ < cfg_.endAfterIdleMs) return;
     closeSession(ev);
 }
 
@@ -236,6 +253,7 @@ void WalkTracker::closeSession(Events& ev) {
 
     inSession_ = false;
     pending_.reset();
+    stopReportMs_.reset();
 }
 
 }  // namespace walk

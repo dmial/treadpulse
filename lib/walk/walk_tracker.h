@@ -22,9 +22,15 @@ struct Sample {
     bool fresh = false;  // a notification arrived within the freshness window
     float speedKmh = 0.0f;
     float inclinePct = 0.0f;
-    std::optional<uint32_t> treadmillDistanceM;  // treadmill's own cumulative counter
-    std::optional<uint16_t> treadmillElapsedS;   // treadmill's own workout clock
-    std::optional<uint16_t> heartRateBpm;        // fresh pulse from a worn strap
+    // The treadmill's own counters. Both read 0 while it is paused and after a
+    // stop; after a pause they come back where they were, after a stop a new
+    // workout counts up from 0 again.
+    std::optional<uint32_t> treadmillDistanceM;
+    std::optional<uint16_t> treadmillElapsedS;
+    std::optional<uint16_t> heartRateBpm;  // fresh pulse from a worn strap
+    // The treadmill reported since the last sample that stop was pressed (or
+    // the safety key pulled): its workout is over, so the walk ends right away.
+    bool treadmillStopped = false;
 };
 
 // Running pulse statistics. Seconds without a pulse reading are skipped.
@@ -54,6 +60,11 @@ struct Segment {
     uint32_t durationS() const { return (endMs - startMs + 500) / 1000; }
 };
 
+// Whole seconds of a walking time, rounded to the nearest second: samples
+// arrive a few ms late at random, so the total sits right on a whole second,
+// and truncating it made the shown timer skip or repeat a second.
+inline uint32_t roundedSeconds(uint32_t ms) { return (ms + 500) / 1000; }
+
 struct Summary {
     uint32_t startMs = 0;
     uint32_t endMs = 0;  // last moment the belt was moving
@@ -67,6 +78,7 @@ struct Summary {
     std::optional<float> averageHeartRateBpm;
     std::optional<uint16_t> maxHeartRateBpm;
 
+    uint32_t walkSeconds() const { return roundedSeconds(walkMs); }
     float averageSpeedKmh() const {
         return walkMs == 0 ? 0.0f : distanceM / (walkMs / 3600000.0f) / 1000.0f;
     }
@@ -80,6 +92,9 @@ struct Events {
 
 struct Config {
     uint32_t endAfterIdleMs = 5 * 60 * 1000;  // stop/no data this long ends the walk
+    // A reported stop ends the walk once the belt stands still, if that happens
+    // within this long of the report (it may come just before the speed drops).
+    uint32_t stopReportWindowMs = 5000;
     uint32_t stableMs = 3000;      // a new speed/incline must hold this long to open a segment
     float movingThresholdKmh = 0.05f;
     uint32_t maxTickGapMs = 2000;  // clamp for the time step between samples
@@ -97,7 +112,7 @@ class WalkTracker {
 
     bool inSession() const { return inSession_; }
     // Walking time of the current session, or of the last one after it ended.
-    uint32_t walkSeconds() const { return walkMs_ / 1000; }
+    uint32_t walkSeconds() const { return roundedSeconds(walkMs_); }
     float distanceM() const { return distanceM_; }
     Activity lastActivity() const { return lastActivity_; }
     uint32_t sessionStartMs() const { return sessionStartMs_; }
@@ -133,6 +148,7 @@ class WalkTracker {
     Segment close(const OpenSegment& seg, uint32_t endMs, float endDistanceM) const;
     void startSession(const Sample& s, Events& ev);
     void updateDistance(const Sample& s, Activity a, uint32_t dtMs);
+    float countTreadmillDistance(uint32_t counterM);
     void fillGapFromTreadmillClock(const Sample& s);
     void updateSegments(const Sample& s, Activity a, Events& ev);
     void maybeEndSession(const Sample& s, Activity a, Events& ev);
@@ -145,6 +161,7 @@ class WalkTracker {
     Activity lastActivity_ = Activity::NoData;
     std::optional<uint32_t> lastTickMs_;
     uint32_t lastWalkMs_ = 0;
+    std::optional<uint32_t> stopReportMs_;  // when the treadmill last reported a stop
 
     uint32_t walkMs_ = 0;
     float distanceM_ = 0.0f;

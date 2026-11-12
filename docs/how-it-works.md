@@ -2,7 +2,7 @@
 
 ## Walks
 
-A walk starts when the belt starts moving. It ends when the belt has stood still (or the treadmill has been out of reach) for more than 5 minutes. A shorter stop is a pause within the same walk.
+A walk starts when the belt starts moving. It ends a few seconds after you press stop on the treadmill, if the treadmill reports it over Bluetooth (the Fitness Machine Status characteristic; the Merach W50 does). Otherwise it ends when the belt has stood still (or the treadmill has been out of reach) for more than 5 minutes. The treadmill's pause button, or any shorter stop, is a pause within the same walk. Starting again after a reported stop is a new walk, just as the treadmill starts a new workout.
 
 Each walk is a folder in the board's memory:
 
@@ -27,7 +27,7 @@ The files open in Numbers, Excel or anything that reads CSV.
 Wi-Fi shares the radio with Bluetooth, so it stays off while you walk. The board goes online:
 
 - at power-on, before it looks for the treadmill (at most 30 seconds of uploading; the rest waits until after the walk);
-- right after a walk ends;
+- a minute after a walk ends, so that starting again right away isn't held up by Wi-Fi;
 - after a failed attempt, while no walk is going on: every minute while the clock is not set yet (without it the daily ring shows only walks since power-on), otherwise every 10 minutes.
 
 Each time it tries to join the network twice, 10 seconds each, and writes to the serial log why the network refused.
@@ -41,6 +41,8 @@ The receiver (`cloud/`) only accepts writes: nothing can be read back through it
 ## When things go wrong
 
 **The treadmill link drops.** The treadmill reports running totals: distance and its own workout time. After reconnecting, the board fills the gap from those totals. Only the per-second detail of the gap is lost.
+
+**The treadmill's totals read zero.** They do during a pause (and come back where they were when you resume) and after a stop (a new workout counts up from zero). The board takes a zero as "no reading", not as a reset, so distance never counts twice. The Merach W50 also sends, about once a walk, a single reading with speed, distance and time all at zero while the belt keeps moving; the board drops it. A real stop looks different: the speed drops to zero first, while distance and time still hold.
 
 **The board loses power.** The per-second log is flushed every 10 seconds, so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes. A line cut in half by the power loss is skipped.
 

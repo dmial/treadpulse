@@ -62,7 +62,7 @@ String segmentLine(const walk::Segment& s, const String& start, const String& en
 
 String summaryLine(int id, const walk::Summary& sum, const String& start, const String& end,
                    bool recovered) {
-    const uint32_t walkS = sum.walkMs / 1000;
+    const uint32_t walkS = sum.walkSeconds();
     char buf[256];
     snprintf(buf, sizeof(buf), "%d,%s,%s,%s,%lu,%.0f,%.2f,%.1f,%.1f,%.1f,%s,%lu,%s", id,
              start.c_str(), end.c_str(), hms(walkS).c_str(), static_cast<unsigned long>(walkS),
@@ -208,7 +208,7 @@ bool Storage::recoverWalk(const String& walk) {
         return false;
     }
     Serial.printf("[fs] walk %s recovered: %s, %.0f m\n", walk.c_str(),
-                  hms(sum.walkMs / 1000).c_str(), sum.distanceM);
+                  hms(sum.walkSeconds()).c_str(), sum.distanceM);
     return true;
 }
 
@@ -274,7 +274,7 @@ void Storage::finishWalk(const walk::Summary& sum) {
     }
     pendingCount_ = static_cast<int>(pendingWalks().size());
     Serial.printf("[fs] walk %s finished: %s, %.0f m\n", walk.c_str(),
-                  hms(sum.walkMs / 1000).c_str(), sum.distanceM);
+                  hms(sum.walkSeconds()).c_str(), sum.distanceM);
 }
 
 bool Storage::writeSummary(const String& walk, const String& row) {

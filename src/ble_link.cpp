@@ -31,6 +31,10 @@ ScanCallbacks scanCallbacks;
 BleLink::BleLink(const char* tag, uint16_t serviceUuid, uint16_t characteristicUuid)
     : tag_(tag), service_(serviceUuid), characteristic_(characteristicUuid) {}
 
+void BleLink::listenAlso(uint16_t characteristicUuid, NotifyHandler onNotify) {
+    optional_.push_back(Optional{NimBLEUUID(characteristicUuid), std::move(onNotify)});
+}
+
 void BleLink::begin(NotifyHandler onNotify) {
     onNotify_ = std::move(onNotify);
 
@@ -129,8 +133,23 @@ bool BleLink::connect() {
         return false;
     }
 
+    subscribeOptional(service);
+
     deviceName_ = foundName_;
     connected_.store(true);
     Serial.printf("[%s] subscribed to %s\n", tag_, deviceName_.c_str());
     return true;
+}
+
+void BleLink::subscribeOptional(NimBLERemoteService* service) {
+    for (const Optional& o : optional_) {
+        NimBLERemoteCharacteristic* chr = service->getCharacteristic(o.characteristic);
+        const NotifyHandler handler = o.onNotify;
+        const bool subscribed =
+            chr && chr->canNotify() &&
+            chr->subscribe(true, [handler](NimBLERemoteCharacteristic*, uint8_t* bytes, size_t len,
+                                           bool) { handler(bytes, len); });
+        Serial.printf("[%s] %s %s\n", tag_, subscribed ? "also subscribed to" : "no optional",
+                      o.characteristic.toString().c_str());
+    }
 }
