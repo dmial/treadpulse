@@ -13,7 +13,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 - **Heart rate zones.** The pulse is colored by zone, with a five-zone scale and how far you are from the next threshold.
 - **Pulse chart of the walk** with your two thresholds and where your pulse sat over the last 5 minutes.
 - **Beeps** when the pulse crosses a threshold, and when the treadmill link drops mid-walk.
-- **Day strip:** when you walked today.
+- **Day strip:** when you walked today, with each walk's minutes over it.
 - **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV.
 - **No stale numbers:** grey means no fresh data from the treadmill or the strap.
 

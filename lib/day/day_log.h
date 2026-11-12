@@ -34,6 +34,7 @@ int localSecondsOfDay(int64_t epoch);
 struct StripSegment {
     int startSec = 0;
     int endSec = 0;
+    uint32_t walkSeconds = 0;  // belt moving, shown over the walk in minutes
 };
 
 struct Today {

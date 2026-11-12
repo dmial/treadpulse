@@ -77,7 +77,9 @@ void test_today_sums_todays_walks_and_the_live_one() {
     TEST_ASSERT_EQUAL(3, t.segments.size());
     TEST_ASSERT_EQUAL(7 * kHour + 10 * 60, t.segments[0].startSec);
     TEST_ASSERT_EQUAL(7 * kHour + 40 * 60, t.segments[0].endSec);
+    TEST_ASSERT_EQUAL_UINT32(1750, t.segments[0].walkSeconds);
     TEST_ASSERT_EQUAL(14 * kHour, t.segments[2].startSec);
+    TEST_ASSERT_EQUAL_UINT32(1934, t.segments[2].walkSeconds);
     TEST_ASSERT_EQUAL(14 * kHour + 32 * 60, t.nowSec);
 }
 

@@ -102,6 +102,7 @@ class Dashboard {
     void updateLevel(const std::vector<float>& bpm, int end, float secondsPerColumn, bool pulseUp);
     bool placeLevelCaption(const std::vector<float>& bpm);
     void updateDay(const Model& m);
+    void updateWalkMinutes();
 
     static void onDrawChart(lv_event_t* e);
     static void onDrawDay(lv_event_t* e);
@@ -138,7 +139,7 @@ class Dashboard {
     lv_obj_t* levelCaption_ = nullptr;
 
     lv_obj_t* day_ = nullptr;
-    lv_obj_t* daySummary_ = nullptr;
+    std::vector<lv_obj_t*> walkMinutes_;  // over the strip's walks; made as needed
 
     lv_obj_t* msgTitle_ = nullptr;
     lv_obj_t* msgDetail_ = nullptr;

@@ -67,6 +67,7 @@ Today DayLog::today(int64_t nowEpoch, const Walk* live) const {
         const bool sameDay = dayKey(w.endEpoch, 0) == dayKey(w.startEpoch, 0);
         s.endSec = sameDay ? localSecondsOfDay(w.endEpoch) : kSecondsPerDay;
         if (s.endSec < s.startSec) s.endSec = s.startSec;
+        s.walkSeconds = w.walkSeconds;
         t.segments.push_back(s);
     };
     for (const Walk& w : walks_) take(w);

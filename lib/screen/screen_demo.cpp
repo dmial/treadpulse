@@ -34,10 +34,13 @@ walk::History makeWalk(uint32_t seconds, const std::vector<Key>& keys) {
     return h;
 }
 
-day::StripSegment at(int h1, int m1, int h2, int m2) {
+// A walk from h1:m1 to h2:m2 with this much walking (0: the walk shown, filled
+// in at the end).
+day::StripSegment at(int h1, int m1, int h2, int m2, uint32_t walkSeconds = 0) {
     day::StripSegment s;
     s.startSec = h1 * 3600 + m1 * 60;
     s.endSec = h2 * 3600 + m2 * 60;
+    s.walkSeconds = walkSeconds;
     return s;
 }
 
@@ -78,7 +81,7 @@ Model scene(int i, uint32_t goalSeconds) {
     std::vector<Key> keys = kSteady;
     uint32_t seconds = kWalkSeconds;
     m.bpm = 131;
-    m.today.segments = {at(7, 10, 7, 40), at(9, 30, 9, 52), at(14, 0, 14, 32)};
+    m.today.segments = {at(7, 10, 7, 40, 1750), at(9, 30, 9, 52, 1300), at(14, 0, 14, 32)};
     m.today.nowSec = 14 * 3600 + 32 * 60;
     uint32_t earlier = kMorningWalks;
 
@@ -98,10 +101,13 @@ Model scene(int i, uint32_t goalSeconds) {
         case 4:  // strap off
             m.pulseUp = false;
             break;
-        case 5:  // the goal is met: second lap
-            m.today.segments = {at(7, 10, 7, 40), at(9, 30, 9, 52), at(11, 0, 11, 45),
-                                at(12, 30, 12, 50), at(14, 0, 14, 32)};
-            earlier = kMorningWalks + 2700 + 1200;
+        case 5:  // the goal is met: second lap; a short walk right after a longer
+                 // one (its minutes give way) and one under a minute (none shown)
+            m.today.segments = {at(7, 10, 7, 40, 1750), at(9, 30, 9, 52, 1300),
+                                at(9, 55, 9, 58, 170),  at(11, 0, 11, 45, 2700),
+                                at(12, 30, 12, 50, 1200), at(13, 20, 13, 21, 40),
+                                at(14, 0, 14, 32)};
+            earlier = kMorningWalks + 170 + 2700 + 1200 + 40;
             break;
         case 6:  // three minutes into a walk
             seconds = 190;
@@ -109,7 +115,7 @@ Model scene(int i, uint32_t goalSeconds) {
             m.bpm = 108;
             m.speedKmh = 3.5f;
             m.inclinePct = 3.0f;
-            m.today.segments = {at(7, 10, 7, 40), at(9, 30, 9, 52), at(14, 0, 14, 3)};
+            m.today.segments = {at(7, 10, 7, 40, 1750), at(9, 30, 9, 52, 1300), at(14, 0, 14, 3)};
             m.today.nowSec = 14 * 3600 + 3 * 60;
             m.clock = "14:03";
             break;
@@ -130,6 +136,7 @@ Model scene(int i, uint32_t goalSeconds) {
     m.walkSeconds = h.seconds();
     m.columns = h.columns(kChartColumns, kChartMinSpanS);
     m.chartSpanS = h.spanSeconds(kChartMinSpanS);
+    m.today.segments.back().walkSeconds = m.walkSeconds;
     m.today.totalSeconds = earlier + m.walkSeconds;
     m.today.walkCount = static_cast<int>(m.today.segments.size());
     return m;

@@ -60,7 +60,7 @@ constexpr int32_t kSpeedX = 320, kInclineX = 438, kPulseX = 594;
 constexpr int32_t kLeftX = 150;  // centre of the column
 constexpr int32_t kLeftW = 296;  // the timer drops to the numbers' size past this
 constexpr int32_t kRingY = 258;  // centre
-constexpr int32_t kRingOuter = 88, kRingWidth = 14;
+constexpr int32_t kRingOuter = 102, kRingWidth = 14;  // room for "of 120 min today" inside
 constexpr int32_t kTodayBaseline = 265, kTodayCaptionBaseline = 287;
 
 // Zone scale under the pulse
@@ -72,7 +72,9 @@ constexpr int32_t kChartX = 320, kChartTop = 150, kChartBottom = 366;
 constexpr int32_t kChartPad = 6;  // room for round line caps at the edges
 constexpr int32_t kPulseTop = 156, kPulseBottom = 360;
 constexpr float kPulseLo = 90.0f, kPulseHi = 180.0f;  // bpm at the bottom and top (HRmax 181)
-constexpr int32_t kAxisBaseline = 386;
+// Just under the lowest the pulse line goes (kPulseBottom), so the minutes
+// read as the chart's and not the day strip's.
+constexpr int32_t kAxisBaseline = 377;
 // The pulse level over the last minutes: a faint corridor, the average inside
 // it, its number right of the chart and a caption beside the corridor.
 constexpr lv_opa_t kLevelBandOpa = 34;
@@ -86,9 +88,19 @@ int32_t levelNumberX(int endColumn) {
     return std::min(kChartX + endColumn + 6, kChartX + screen::kChartColumns + kLevelGap);
 }
 
-// Day strip, bottom
-constexpr int32_t kDayX = 40, kDayW = 720, kDayBarY = 420, kDayBarH = 18;
-constexpr int32_t kDayCaptionBaseline = 412, kHourBaseline = 466;
+// Day strip, bottom: each walk's minutes over it and the hours under it, the
+// same gap away (geo_16 digits stand kCaptionCap px tall on their baseline).
+constexpr int32_t kDayX = 40, kDayW = 720, kDayBarY = 431, kDayBarH = 18;
+constexpr int32_t kDayTextGap = 12;
+constexpr int32_t kWalkMinutesBaseline = kDayBarY - 1 - kDayTextGap;
+constexpr int32_t kHourBaseline = kDayBarY + kDayBarH - 1 + kDayTextGap + kCaptionCap;
+constexpr int32_t kWalkMinutesGap = 6;  // least room between two walks' minutes
+
+// Where a moment of the day falls on the strip, clamped to its ends.
+int32_t stripX(int sec, int startSec, int endSec) {
+    sec = std::min(std::max(sec, startSec), endSec);
+    return kDayX + static_cast<int32_t>(int64_t(sec - startSec) * kDayW / (endSec - startSec));
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -181,13 +193,6 @@ void setVisible(lv_obj_t* o, bool visible) {
     }
 }
 
-std::string hoursMinutes(uint32_t s) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%lu:%02lu", static_cast<unsigned long>(s / 3600),
-             static_cast<unsigned long>(s / 60 % 60));
-    return buf;
-}
-
 std::string walkClock(uint32_t s) {
     char buf[16];
     if (s < 3600) {
@@ -216,12 +221,14 @@ bool samePulse(const std::vector<walk::Column>& a, const std::vector<walk::Colum
     return true;
 }
 
-// The day strip moves less than a pixel a minute, so it is compared by minutes.
+// The day strip moves less than a pixel a minute and shows whole minutes, so it
+// is compared by minutes.
 bool sameStrip(const day::Today& a, const day::Today& b) {
     if (a.nowSec / 60 != b.nowSec / 60 || a.segments.size() != b.segments.size()) return false;
     for (size_t i = 0; i < a.segments.size(); ++i) {
         if (a.segments[i].startSec / 60 != b.segments[i].startSec / 60 ||
-            a.segments[i].endSec / 60 != b.segments[i].endSec / 60) {
+            a.segments[i].endSec / 60 != b.segments[i].endSec / 60 ||
+            a.segments[i].walkSeconds / 60 != b.segments[i].walkSeconds / 60) {
             return false;
         }
     }
@@ -382,9 +389,6 @@ void Dashboard::buildChart() {
 }
 
 void Dashboard::buildDay() {
-    makeLabel(dash_, &geo_18, kMuted, Align::Left, kDayX, kDayCaptionBaseline, 100, "today");
-    daySummary_ = makeLabel(dash_, &geo_18, kWhite, Align::Right, kDayX + kDayW, kDayCaptionBaseline, 400);
-
     day_ = makeBox(dash_);
     lv_obj_set_pos(day_, kDayX, kDayBarY);
     lv_obj_set_size(day_, kDayW, kDayBarH);
@@ -461,10 +465,12 @@ void Dashboard::updateRing(const Model& m) {
     setLap(lap1_, lap1, !up ? (met ? kOffDim : kOff) : (met ? kFirstLap : kWhite));
     setLap(lap2_, lap2, up ? kWhite : kOff);
 
-    setText(todayValue_, hoursMinutes(total));
+    // The day counts in whole minutes, as the walks on the day strip do: only the
+    // walk's timer (minutes and seconds) has a colon.
+    setText(todayValue_, std::to_string(total / 60));
     setTextColor(todayValue_, up ? kWhite : kOff);
     if (!met) {
-        setText(todayCaption_, "of " + hoursMinutes(goal) + " today");
+        setText(todayCaption_, "of " + std::to_string(goal / 60) + " min today");
     } else if (total - goal < 60) {
         setText(todayCaption_, "goal reached");
     } else {
@@ -684,19 +690,62 @@ void Dashboard::updateAxis(uint32_t spanS) {
 }
 
 void Dashboard::updateDay(const Model& m) {
-    if (!dayBuilt_ || dayTreadmillUp_ != m.treadmillUp || !sameStrip(dayData_, m.today)) {
-        dayBuilt_ = true;
-        dayData_ = m.today;
-        dayTreadmillUp_ = m.treadmillUp;
-        lv_obj_invalidate(day_);
+    if (dayBuilt_ && dayTreadmillUp_ == m.treadmillUp && sameStrip(dayData_, m.today)) return;
+    dayBuilt_ = true;
+    dayData_ = m.today;
+    dayTreadmillUp_ = m.treadmillUp;
+    lv_obj_invalidate(day_);
+    updateWalkMinutes();
+}
+
+// Each walk's minutes (belt moving) centred over it, kept inside the strip. A
+// walk under a minute gets none; where two would collide the longer walk keeps
+// its number.
+void Dashboard::updateWalkMinutes() {
+    struct Tag {
+        uint32_t minutes;
+        int32_t left, right;
+        std::string text;
+    };
+    const int start = s_.stripStartHour * 3600, end = s_.stripEndHour * 3600;
+    std::vector<Tag> tags;
+    for (const day::StripSegment& seg : dayData_.segments) {
+        if (seg.endSec <= start || seg.startSec >= end || seg.walkSeconds < 60) continue;
+        const int32_t a = stripX(seg.startSec, start, end);
+        const int32_t b = std::max(stripX(seg.endSec, start, end), a + 2);
+        Tag t;
+        t.minutes = seg.walkSeconds / 60;
+        t.text = std::to_string(t.minutes);
+        const int32_t w = textWidth(t.text.c_str(), &geo_16);
+        t.left = std::min(std::max((a + b) / 2 - w / 2, kDayX), kDayX + kDayW - w);
+        t.right = t.left + w;
+        tags.push_back(t);
     }
-    const int n = m.today.walkCount;
-    if (n == 0) {
-        setText(daySummary_, "no walks yet");
-    } else {
-        setText(daySummary_, walkCount(n) + " · " + hoursMinutes(m.today.totalSeconds));
+    std::stable_sort(tags.begin(), tags.end(),
+                     [](const Tag& x, const Tag& y) { return x.minutes > y.minutes; });
+    std::vector<const Tag*> shown;
+    for (const Tag& t : tags) {
+        bool clear = true;
+        for (const Tag* o : shown) {
+            if (t.left < o->right + kWalkMinutesGap && o->left < t.right + kWalkMinutesGap) clear = false;
+        }
+        if (clear) shown.push_back(&t);
     }
-    setTextColor(daySummary_, m.treadmillUp ? kWhite : kOff);
+
+    while (walkMinutes_.size() < shown.size()) {
+        walkMinutes_.push_back(makeLabel(dash_, &geo_16, kWhite, Align::Left, kDayX, kWalkMinutesBaseline, 40));
+    }
+    for (size_t i = 0; i < walkMinutes_.size(); ++i) {
+        lv_obj_t* l = walkMinutes_[i];
+        if (i >= shown.size()) {
+            setVisible(l, false);
+            continue;
+        }
+        setText(l, shown[i]->text);
+        place(l, Align::Left, shown[i]->left, kWalkMinutesBaseline, shown[i]->right - shown[i]->left + 4);
+        setTextColor(l, dayTreadmillUp_ ? kWhite : kOff);
+        setVisible(l, true);
+    }
 }
 
 // ---------------------------------------------------------------- drawing
@@ -765,10 +814,7 @@ void Dashboard::drawDay(lv_layer_t* layer) const {
     drawRect(layer, kDayX, y1, kDayX + kDayW - 1, y2, kDayTrack, LV_OPA_COVER, radius);
 
     const int start = s_.stripStartHour * 3600, end = s_.stripEndHour * 3600;
-    auto xAt = [&](int sec) {
-        sec = std::min(std::max(sec, start), end);
-        return kDayX + static_cast<int32_t>(int64_t(sec - start) * kDayW / (end - start));
-    };
+    auto xAt = [&](int sec) { return stripX(sec, start, end); };
 
     const int now = dayData_.nowSec;
     if (now > start) drawRect(layer, kDayX, y1, xAt(now) - 1, y2, kDayPast, LV_OPA_COVER, radius);
