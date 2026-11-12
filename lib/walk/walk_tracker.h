@@ -65,6 +65,10 @@ struct Segment {
 // and truncating it made the shown timer skip or repeat a second.
 inline uint32_t roundedSeconds(uint32_t ms) { return (ms + 500) / 1000; }
 
+// A walk with less walking than this is not kept: an accidental start, or a
+// quick try of the treadmill's buttons, leaves no trace.
+constexpr uint32_t kMinKeptWalkS = 60;
+
 struct Summary {
     uint32_t startMs = 0;
     uint32_t endMs = 0;  // last moment the belt was moving
@@ -79,6 +83,7 @@ struct Summary {
     std::optional<uint16_t> maxHeartRateBpm;
 
     uint32_t walkSeconds() const { return roundedSeconds(walkMs); }
+    bool worthKeeping() const { return walkSeconds() >= kMinKeptWalkS; }
     float averageSpeedKmh() const {
         return walkMs == 0 ? 0.0f : distanceM / (walkMs / 3600000.0f) / 1000.0f;
     }

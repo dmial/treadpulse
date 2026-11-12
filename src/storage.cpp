@@ -101,6 +101,15 @@ int takeWalkId() {
     return static_cast<int>(id);
 }
 
+// Hands a dropped walk's number back, so the numbers have no gaps. Only the
+// newest number goes back; a dropped walk never reached the cloud.
+void giveBackWalkId(int id) {
+    Preferences prefs;
+    prefs.begin("walks", false);
+    if (prefs.getUInt("next", 1) == static_cast<uint32_t>(id) + 1) prefs.putUInt("next", id);
+    prefs.end();
+}
+
 }  // namespace
 
 bool Storage::begin() {
@@ -183,6 +192,12 @@ bool Storage::recoverWalk(const String& walk) {
         // The power went out in the first seconds: nothing worth keeping.
         Serial.printf("[fs] %s: no walking in the log, deleted\n", walk.c_str());
         removeWalk(walk);
+        return false;
+    }
+    if (!result.summary->worthKeeping()) {
+        Serial.printf("[fs] %s: under a minute of walking, deleted\n", walk.c_str());
+        removeWalk(walk);
+        giveBackWalkId(atoi(walk.c_str()));  // "0042_..." -> 42
         return false;
     }
 
@@ -275,6 +290,17 @@ void Storage::finishWalk(const walk::Summary& sum) {
     pendingCount_ = static_cast<int>(pendingWalks().size());
     Serial.printf("[fs] walk %s finished: %s, %.0f m\n", walk.c_str(),
                   hms(sum.walkSeconds()).c_str(), sum.distanceM);
+}
+
+void Storage::discardWalk() {
+    if (!ok_ || walk_.isEmpty()) return;
+    if (samples_) samples_.close();
+
+    const String walk = walk_;
+    walk_ = "";
+    removeWalk(walk);
+    giveBackWalkId(walkId_);
+    Serial.printf("[fs] walk %s: under a minute of walking, not kept\n", walk.c_str());
 }
 
 bool Storage::writeSummary(const String& walk, const String& row) {

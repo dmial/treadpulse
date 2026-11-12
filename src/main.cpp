@@ -7,6 +7,8 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 
+#include <utility>
+
 #include "beeper.h"
 #include "ble_link.h"
 #include "clock_sync.h"
@@ -53,7 +55,9 @@ constexpr uint32_t kDaySaveMs = 60 * 1000;
 TreadmillLink treadmill;
 HeartRateLink heartRate;
 walk::WalkTracker tracker;
-walk::History history;  // the current (or last) walk, for the chart
+walk::History history;  // the current (or last kept) walk, for the chart
+// The last kept walk's chart, while the new walk may still prove too short to keep.
+walk::History previousHistory;
 day::DayLog dayLog(userconfig::kDayResetHour);
 pulse::LineWatcher pulseLines(userconfig::kPulseCeilingBpm, userconfig::kPulseIntervalBpm);
 Storage storage;
@@ -68,6 +72,7 @@ uint32_t lastDaySaveMs = 0;
 bool netNow = false;
 uint32_t netDueMs = 0;
 uint32_t lastStopCount = 0;  // the treadmill's stop reports already passed on
+uint32_t keptWalkSeconds = 0;  // the last kept walk's time, shown between walks
 bool wasLinkUp = false;
 bool wasMoving = false;
 
@@ -149,6 +154,7 @@ void tick(uint32_t now) {
 
     if (ev.sessionStarted) {
         storage.startWalk(tracker.sessionStartMs());
+        std::swap(history, previousHistory);
         history.clear();
         lastDaySaveMs = now;
     }
@@ -176,15 +182,23 @@ void tick(uint32_t now) {
     const day::Walk* liveWalk = tracker.inSession() ? &live : nullptr;
     if (ev.sessionEnded) {
         const walk::Summary& sum = *ev.sessionEnded;
-        storage.finishWalk(sum);
-        // The walk ended after the belt stopped (seconds after a reported stop,
-        // minutes otherwise); that tail is not walking.
-        history.trimTo((sum.endMs - sum.startMs) / 1000 + 1);
-        dayLog.add(dayWalk(sum.startMs, sum.endMs, sum.walkSeconds()));
-        dayLog.prune(epoch);
-        saveDay(nullptr);
-        netNow = true;
-        netDueMs = now + kNetAfterWalkMs;
+        if (sum.worthKeeping()) {
+            storage.finishWalk(sum);
+            // The walk ended after the belt stopped (seconds after a reported stop,
+            // minutes otherwise); that tail is not walking.
+            history.trimTo((sum.endMs - sum.startMs) / 1000 + 1);
+            dayLog.add(dayWalk(sum.startMs, sum.endMs, sum.walkSeconds()));
+            dayLog.prune(epoch);
+            keptWalkSeconds = sum.walkSeconds();
+            netNow = true;
+            netDueMs = now + kNetAfterWalkMs;
+        } else {
+            // Too short to keep: as if it never happened, the last kept walk
+            // comes back on screen.
+            storage.discardWalk();
+            std::swap(history, previousHistory);
+        }
+        saveDay(nullptr);  // also drops the walk if it was saved as in progress
     }
     if (dayLog.resolve(epoch, now)) saveDay(liveWalk);  // the clock just got set
     if (liveWalk && now - lastDaySaveMs >= kDaySaveMs) {
@@ -203,7 +217,7 @@ void tick(uint32_t now) {
     m.treadmillUp = linkUp;
     m.speedKmh = sample.speedKmh;
     m.inclinePct = sample.inclinePct;
-    m.walkSeconds = tracker.walkSeconds();
+    m.walkSeconds = tracker.inSession() ? tracker.walkSeconds() : keptWalkSeconds;
     m.walking = tracker.inSession();
     m.pulseUp = heartRateUp;
     m.bpm = hr.bpm;

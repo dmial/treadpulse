@@ -4,6 +4,8 @@
 
 A walk starts when the belt starts moving. It ends a few seconds after you press stop on the treadmill, if the treadmill reports it over Bluetooth (the Fitness Machine Status characteristic; the Merach W50 does). Otherwise it ends when the belt has stood still (or the treadmill has been out of reach) for more than 5 minutes. The treadmill's pause button, or any shorter stop, is a pause within the same walk. Starting again after a reported stop is a new walk, just as the treadmill starts a new workout.
 
+A walk with less than a minute of walking (pauses don't count) is not kept: an accidental start or a quick try of the buttons leaves no trace in the board's memory, the cloud or the day's total, and the screen goes back to the previous walk.
+
 Each walk is a folder in the board's memory:
 
 ```
@@ -44,7 +46,7 @@ The receiver (`cloud/`) only accepts writes: nothing can be read back through it
 
 **The treadmill's totals read zero.** They do during a pause (and come back where they were when you resume) and after a stop (a new workout counts up from zero). The board takes a zero as "no reading", not as a reset, so distance never counts twice. The Merach W50 also sends, about once a walk, a single reading with speed, distance and time all at zero while the belt keeps moving; the board drops it. A real stop looks different: the speed drops to zero first, while distance and time still hold.
 
-**The board loses power.** The per-second log is flushed every 10 seconds, so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes. A line cut in half by the power loss is skipped.
+**The board loses power.** The per-second log is flushed every 10 seconds, so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes; one with less than a minute of walking is deleted instead. A line cut in half by the power loss is skipped.
 
 If the board restarts mid-walk while the treadmill keeps going, you get two walks: the recovered one and a new one.
 

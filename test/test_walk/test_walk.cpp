@@ -325,6 +325,32 @@ void test_stop_report_while_belt_keeps_moving_is_dropped() {
     TEST_ASSERT_TRUE(r.tracker.inSession());
 }
 
+void test_walk_under_a_minute_is_not_worth_keeping() {
+    walk::Summary sum;
+    sum.walkMs = 59000;
+    TEST_ASSERT_FALSE(sum.worthKeeping());
+    sum.walkMs = 60000;
+    TEST_ASSERT_TRUE(sum.worthKeeping());
+
+    // A quick try of the buttons: 5 s at 1.0 km/h, then stop.
+    Run r;
+    r.span(0, 5, [](uint32_t t) { return at(t, 1.0f); });
+    Sample stop = at(6, 0.0f);
+    stop.treadmillStopped = true;
+    r.feed(stop);
+    TEST_ASSERT_EQUAL(1, r.summaries.size());
+    TEST_ASSERT_FALSE(r.summaries[0].worthKeeping());
+
+    // Pauses do not count: 30 s of walking around a 3-minute pause.
+    Run p;
+    p.span(0, 15, [](uint32_t t) { return at(t, 3.0f); });
+    p.span(16, 195, [](uint32_t t) { return at(t, 0.0f); });
+    p.span(196, 210, [](uint32_t t) { return at(t, 3.0f); });
+    p.span(211, 520, [](uint32_t t) { return at(t, 0.0f); });
+    TEST_ASSERT_EQUAL(1, p.summaries.size());
+    TEST_ASSERT_FALSE(p.summaries[0].worthKeeping());
+}
+
 void test_heart_rate_summary_counts_walking_seconds_only() {
     Run r;
     auto withPulse = [](uint32_t t, float speed, uint16_t bpm) {
@@ -415,6 +441,7 @@ int main(int, char**) {
     RUN_TEST(test_reported_stop_ends_walk_right_away);
     RUN_TEST(test_stop_reported_just_before_the_belt_stops);
     RUN_TEST(test_stop_report_while_belt_keeps_moving_is_dropped);
+    RUN_TEST(test_walk_under_a_minute_is_not_worth_keeping);
     RUN_TEST(test_heart_rate_summary_counts_walking_seconds_only);
     RUN_TEST(test_segment_heart_rate_follows_segment_boundaries);
     RUN_TEST(test_blip_pulse_stays_in_its_segment);

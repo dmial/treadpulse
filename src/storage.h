@@ -29,14 +29,18 @@ class Storage {
     bool ok() const { return ok_; }
 
     // Closes walks left open by a power cut: rebuilds each one's segments from
-    // its per-second log and writes its summary (marked as recovered). Call at
-    // boot, before a new walk can start. Returns the count.
+    // its per-second log and writes its summary (marked as recovered); one too
+    // short to keep is deleted. Call at boot, before a new walk can start.
+    // Returns the count recovered.
     int recoverUnfinishedWalks();
 
     void startWalk(uint32_t startUptimeMs);
     void appendSample(const walk::SampleRow& row);
     void appendSegment(const walk::Segment& seg);
     void finishWalk(const walk::Summary& sum);
+    // Drops the walk being recorded, too short to keep (walk::kMinKeptWalkS):
+    // deletes its files and gives its number back.
+    void discardWalk();
 
     // Finished walks waiting for upload, oldest first.
     std::vector<String> pendingWalks();
