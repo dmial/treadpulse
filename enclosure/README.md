@@ -6,6 +6,12 @@ A 3D-printed desk stand for the Freenove FNK0115 board: a frame around the scree
 
 **See it in 3D:** [open the 3D view](https://dmial.github.io/treadpulse/enclosure/viewer.html). You can turn the stand, take it apart, cut it open and show its sizes. It is [viewer.html](viewer.html) from this folder, published with GitHub Pages; a downloaded copy opens in a browser too. Either way it loads its 3D library from the internet. GitHub also shows [frame.stl](frame.stl) and [wedge.stl](wedge.stl) in 3D.
 
+| Front | Back | Taken apart |
+| --- | --- | --- |
+| ![The stand from the front: the display in the frame, tilted back](../docs/images/stand-front.png) | ![The stand from the back: the wedge with the speaker slots, the USB-C opening on the side](../docs/images/stand-back.png) | ![Taken apart: the wedge, the board and the frame, with the screws](../docs/images/stand-exploded.png) |
+
+<sub>Rendered from the 3D view.</sub>
+
 ## Files
 
 | File | What it is |
@@ -71,4 +77,4 @@ All sizes are numbers at the top of `case.scad`. After a change, run:
 python3 enclosure/build.py
 ```
 
-It remakes `frame.stl` and `wedge.stl`, checks that the board, the speaker and a USB-C plug fit and that both parts print without supports, and refreshes the 3D view. It needs OpenSCAD 2025 or newer; on macOS: `brew install --cask openscad@snapshot`. Once the change is pushed, GitHub Pages updates the published 3D view within a few minutes.
+It remakes `frame.stl` and `wedge.stl`, checks that the board, the speaker and a USB-C plug fit and that both parts print without supports, and refreshes the 3D view. It needs OpenSCAD 2025 or newer; on macOS: `brew install --cask openscad@snapshot`. Once the change is pushed, GitHub Pages updates the published 3D view within a few minutes. The pictures at the top (`docs/images/stand-*.png`) are screenshots of the 3D view and `build.py` doesn't remake them: after a change you can see, take new ones.

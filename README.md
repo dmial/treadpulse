@@ -40,6 +40,10 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 | Power | Any USB-C phone charger. |
 | Desk stand (optional) | Print it: two parts, about 95 g of PLA, plus four 3 × 14 mm screws. [See it in 3D](https://dmial.github.io/treadpulse/enclosure/viewer.html); files, print settings and assembly in [enclosure](enclosure/). |
 
+![The desk stand: the display in a printed frame, tilted back on a wedge](docs/images/stand-front.png)
+
+<sub>The desk stand, rendered from its [3D model](https://dmial.github.io/treadpulse/enclosure/viewer.html).</sub>
+
 ## How it works
 
 - **Bluetooth in.** The board connects to the first treadmill and the first heart rate strap it finds. Nothing to pair.
