@@ -84,11 +84,23 @@ Window lastDays(const std::vector<archive::Entry>& entries, const archive::Entry
     for (const archive::Entry& e : entries) place(e);
     if (live) place(*live);
 
+    auto onGoal = [&](const Day& d) {
+        return d.walkSeconds >= (d.goalSeconds > 0 ? d.goalSeconds : goalSeconds);
+    };
     uint32_t total = 0, steps = 0;
     for (const Day& d : w.days) {
-        if (!d.tracked || d.key == todayKey) continue;  // today is not over yet
+        if (!d.tracked) continue;
+        if (d.key == todayKey) {
+            // Today is not over yet: in the goal days once on goal, in the averages tomorrow.
+            if (onGoal(d)) {
+                ++w.goalDays;
+                ++w.goalOf;
+            }
+            continue;
+        }
         ++w.fullDays;
-        if (d.walkSeconds >= (d.goalSeconds > 0 ? d.goalSeconds : goalSeconds)) ++w.goalDays;
+        ++w.goalOf;
+        if (onGoal(d)) ++w.goalDays;
         total += d.walkSeconds;
         steps += d.steps;
         for (size_t z = 0; z < w.zoneSeconds.size(); ++z) w.zoneSeconds[z] += d.zoneSeconds[z];

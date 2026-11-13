@@ -1138,10 +1138,11 @@ void Dashboard::layoutStats() {
     };
     withUnit(average_, averageUnit_, std::to_string(w.averageSeconds / 60), kAverageX, kZoneMinutesBaseline);
     withUnit(steps_, stepsUnit_, groupThousands(w.averageSteps), kAverageX, kTotalsRow2Baseline);
-    // "6/13": the days on goal of the full days, as the averages count them.
+    // "6/13": the days on goal of the full days, as the averages count them,
+    // and today too once it is on goal.
     const std::string got = std::to_string(w.goalDays);
     setText(goalDays_, got);
-    setText(goalOf_, "/" + std::to_string(w.fullDays));
+    setText(goalOf_, "/" + std::to_string(w.goalOf));
     place(goalOf_, Align::Left, kGoalX + textWidth(got.c_str(), &geo_26) + 1, kZoneMinutesBaseline, 80);
     withUnit(streak_, streakUnit_, std::to_string(w.streakDays), kGoalX, kTotalsRow2Baseline);
 

@@ -39,7 +39,11 @@ struct Window {
     // Over the full days: tracked and over, so not today. A morning without a
     // walk yet would pull the averages down; today joins them tomorrow.
     int fullDays = 0;
-    int goalDays = 0;  // at or over the daily goal
+    // Days at or over the daily goal, of goalOf days: the full days, and today
+    // once it is on goal, as in the days in a row. Until then today stays out,
+    // so a morning without a walk yet never counts against the goal.
+    int goalDays = 0;
+    int goalOf = 0;
     uint32_t averageSeconds = 0;
     uint32_t averageSteps = 0;
     std::array<uint32_t, pulse::kZoneCount + 1> zoneSeconds{};

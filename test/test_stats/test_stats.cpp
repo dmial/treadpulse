@@ -99,6 +99,7 @@ void test_goal_days_and_average_count_days_without_walks() {
                                             utc("2026-11-12T21:40:00Z"), 0, kGoal);
     TEST_ASSERT_EQUAL(3, w.fullDays);  // the 10th, with no walk, counts too
     TEST_ASSERT_EQUAL(2, w.goalDays);
+    TEST_ASSERT_EQUAL(3, w.goalOf);
     TEST_ASSERT_EQUAL_UINT32((2 * kGoal + 60) / 3, w.averageSeconds);
 }
 
@@ -110,9 +111,10 @@ void test_walk_in_progress_shows_on_todays_bar() {
     TEST_ASSERT_EQUAL_UINT32(600, w.days.back().zoneSeconds[2]);
 }
 
-// Today shows on its bar but stays out of the totals until it is over: a
-// morning without a walk yet would pull the averages down.
-void test_today_stays_out_of_the_totals() {
+// Today shows on its bar but stays out of the averages until it is over: a
+// morning without a walk yet would pull them down. On goal, it joins the goal
+// days already, as in the days in a row.
+void test_today_stays_out_of_the_averages() {
     const std::vector<Entry> walks = {
         walkAt("2026-11-11T10:00:00Z", 3000, 3000, {0, 1200, 1800, 0, 0, 0}),
         walkAt("2026-11-12T10:00:00Z", kGoal, kGoal, {0, 0, kGoal, 0, 0, 0}),
@@ -121,9 +123,27 @@ void test_today_stays_out_of_the_totals() {
                                             utc("2026-11-12T21:40:00Z"), 0, kGoal);
     TEST_ASSERT_EQUAL_UINT32(kGoal, w.days.back().walkSeconds);
     TEST_ASSERT_EQUAL(1, w.fullDays);
-    TEST_ASSERT_EQUAL(0, w.goalDays);
+    TEST_ASSERT_EQUAL(1, w.goalDays);  // today, on goal
+    TEST_ASSERT_EQUAL(2, w.goalOf);
     TEST_ASSERT_EQUAL_UINT32(3000, w.averageSeconds);
     TEST_ASSERT_EQUAL_UINT32(1800, w.zoneSeconds[2]);
+}
+
+// Under its goal, today stays out of the goal days: it is not over yet.
+void test_today_joins_the_goal_days_once_on_goal() {
+    const std::vector<Entry> walks = {walkAt("2026-11-11T10:00:00Z", kGoal),
+                                      walkAt("2026-11-12T08:00:00Z", kGoal - 600)};
+    const Entry live = walkAt("2026-11-12T21:00:00Z", 600);
+    const stats::Window before = stats::lastDays(walks, nullptr, walks[0].startEpoch,
+                                                 utc("2026-11-12T21:40:00Z"), 0, kGoal);
+    TEST_ASSERT_EQUAL(1, before.goalDays);
+    TEST_ASSERT_EQUAL(1, before.goalOf);
+    const stats::Window after = stats::lastDays(walks, &live, walks[0].startEpoch,
+                                                utc("2026-11-12T21:40:00Z"), 0, kGoal);
+    TEST_ASSERT_EQUAL(2, after.goalDays);  // the walk in progress got today there
+    TEST_ASSERT_EQUAL(2, after.goalOf);
+    TEST_ASSERT_EQUAL(1, after.fullDays);
+    TEST_ASSERT_EQUAL_UINT32(kGoal, after.averageSeconds);
 }
 
 // The day ends at the reset hour: at 02:00 with a 4 o'clock reset, yesterday
@@ -272,7 +292,8 @@ int main(int, char**) {
     RUN_TEST(test_days_before_the_history_are_not_tracked);
     RUN_TEST(test_goal_days_and_average_count_days_without_walks);
     RUN_TEST(test_walk_in_progress_shows_on_todays_bar);
-    RUN_TEST(test_today_stays_out_of_the_totals);
+    RUN_TEST(test_today_stays_out_of_the_averages);
+    RUN_TEST(test_today_joins_the_goal_days_once_on_goal);
     RUN_TEST(test_today_ends_at_the_reset_hour);
     RUN_TEST(test_walk_past_midnight_counts_on_its_first_day);
     RUN_TEST(test_walks_outside_the_window_are_left_out);
