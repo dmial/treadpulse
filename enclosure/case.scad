@@ -63,8 +63,11 @@ back_dark = [
     for (z = btn_z) [btn_x - 1.5, z - 2, 3, 4, btn_top],  // BOOT, RESET
 ];
 
-/* [Speaker: rough until measured] */
-spk = [30, 20, 8];          // width, height, thickness
+/* [Speaker: measured with a ruler, about ±0.5 mm] */
+spk = [40, 18, 10];         // length, height, thickness; the cable leaves one 18 x 10 end
+spk_play = 1.5;             // slot between the back wall and the pad, past the thickness
+cable_room = 10;            // free space at the cable end, next to the wedge's side wall
+pad_over = 3;               // pad past each end of the speaker
 
 /* [Case] */
 tilt = 15;                  // the screen leans back from vertical
@@ -120,8 +123,10 @@ cav_a = meet(cav_front, face_dir, [0, wall], [1, 0]);
 cav_b = meet(heel + bw_in * wall, bw_dir, [0, wall], [1, 0]);
 cav_d = meet(heel + bw_in * wall, bw_dir, cav_front, face_dir);
 
-pocket_x = [foot_inset + wall, foot_inset + wall + spk[0] + 0.6];
-ledge_u = spk[2] * -bw_in[1] / bw_dir[1] + 0.2;  // lifts the speaker clear of the floor
+pocket_x = [foot_inset + wall + cable_room, foot_inset + wall + cable_room + spk[0]];  // the speaker
+pad_x = [pocket_x[0] - pad_over, pocket_x[1] + pad_over];
+slot = spk[2] + spk_play;                        // back wall to the pad
+ledge_u = slot * -bw_in[1] / bw_dir[1] + 0.2;    // lifts the speaker clear of the floor
 
 // Helpers
 module tilted() rotate([-tilt, 0, 0]) children();
@@ -244,19 +249,20 @@ module labels() for (i = [0, 1])
             text(i == 0 ? "B" : "R", size = 3.5, font = "Liberation Sans:style=Bold",
                  halign = "center", valign = "center");
 
-// Slots in the back wall in front of the speaker's membrane.
-module grille() on_back_wall() for (i = [0 : 6])
-    translate([(pocket_x[0] + pocket_x[1]) / 2 + (i - 3) * 3.2, 0.5, 0]) rotate([90, 0, 0])
+// Slots in the back wall in front of the speaker's membrane, along most of its length.
+grille_n = floor((spk[0] - 6) / 3.2) + 1;
+module grille() on_back_wall() for (i = [0 : grille_n - 1])
+    translate([(pocket_x[0] + pocket_x[1]) / 2 + (i - (grille_n - 1) / 2) * 3.2, 0.5, 0]) rotate([90, 0, 0])
         linear_extrude(wall + 1.5) hull()
-            for (u = [ledge_u + 4, ledge_u + 16]) translate([0, u]) circle(d = 1.6, $fn = 16);
+            for (u = [ledge_u + 3, ledge_u + spk[1] - 3]) translate([0, u]) circle(d = 1.6, $fn = 16);
 
-// The speaker stands on a ledge against the back wall, membrane to the grille;
-// its adhesive side sticks to the divider in front of it.
+// The speaker stands on a ledge, membrane toward the grille, its adhesive side stuck to a pad
+// parallel to the back wall. No walls at the ends: the exact length doesn't matter, and the cable
+// leaves the end next to the side wall freely. The slot has play, so it goes in without smearing.
 module speaker_pocket() on_back_wall() {
-    len = pocket_x[1] - pocket_x[0] + 1.6;
-    translate([pocket_x[0] - 0.01, -0.01, -3]) cube([len, spk[2] + 2, 3 + ledge_u]);          // ledge
-    translate([pocket_x[0] - 0.01, spk[2] + 0.4, -3]) cube([len, 1.6, 3 + ledge_u + 14]);    // divider
-    translate([pocket_x[1], -0.01, -3]) cube([1.6, spk[2] + 2, 3 + ledge_u + 14]);           // side
+    len = pad_x[1] - pad_x[0];
+    translate([pad_x[0], -0.01, -3]) cube([len, slot + 0.02, 3 + ledge_u]);              // ledge
+    translate([pad_x[0], slot, -3]) cube([len, 1.6, 3 + ledge_u + spk[1] - 3]);         // pad
 }
 
 // Board, speaker and screws, for the viewer and the fit checks.
@@ -274,7 +280,8 @@ module board(kind) {
 module back_part(b) translate([pcb_x + b[0], pcb_back - 0.01, pcb_z + b[1]]) cube([b[2], b[4] + 0.01, b[3]]);
 module whole_board() tilted() for (k = ["pcb", "lcd", "metal", "white", "dark"]) board(k);
 
-module speaker() on_back_wall() translate([pocket_x[0] + 0.3, 0, ledge_u]) cube([spk[0], spk[2], spk[1]]);
+// Stuck to the pad: the play is left between the membrane and the grille.
+module speaker() on_back_wall() translate([pocket_x[0], spk_play, ledge_u]) cube([spk[0], spk[2], spk[1]]);
 
 // 3 x 14 mm pan-head self-tapping screws, as fitted.
 module screws() tilted() for (h = holes) {

@@ -1,6 +1,6 @@
 # Desk stand
 
-> **Status:** the model is ready to print once two things are checked: the speaker's size and the board's size (see [Before printing](#before-printing)).
+> **Status:** the model is ready to print once the board's size is checked with a ruler (see [Before printing](#before-printing)). The speaker is measured and fitted.
 
 A 3D-printed desk stand for the Freenove FNK0115 board: a frame around the screen and a wedge behind it that holds the screen tilted back 15°, like a desk alarm clock.
 
@@ -19,7 +19,7 @@ A 3D-printed desk stand for the Freenove FNK0115 board: a frame around the scree
 
 - **Two parts.** The frame covers the edges of the screen and wraps around the board. The wedge closes the back and stands on the desk by itself. No hinges or fold-out legs.
 - **Four screws** hold it all together: from the back, through the wedge's corners and the board's corner holes, into posts on the frame. The wedge is 16 mm narrower than the frame on each side, so the corner screws can be reached from behind.
-- **Speaker** stands in a pocket at the bottom of the wedge's back wall, on the same side as the board's speaker socket. The membrane faces the slots in the back wall; the adhesive side sticks to a divider in front of it.
+- **Speaker** (40 × 18 × 10 mm, cable out of one short end) stands at the bottom of the wedge's back wall, on the same side as the board's speaker socket. The membrane faces the slots in the back wall; the adhesive side sticks to a pad in front of it. There are no walls at its ends, and the slot is 1.5 mm wider than the speaker, so a slightly different speaker fits too. The cable end keeps 10 mm free next to the wedge's side wall.
 - **Openings:** USB-C on the left side, 14 × 9 mm, wide enough for common cable plugs. Two paperclip holes on the back of the right side, marked R (RESET) and B (BOOT). No microSD opening: the slot is not used. Plastic over the ESP32 antenna doesn't bother Wi-Fi or Bluetooth.
 - **Size:** 143 mm wide and 95 mm tall from the front, 65 mm deep; about 95 g of PLA. The border under the screen is wider than above it: the speaker plug sits below the board.
 
@@ -38,8 +38,8 @@ Freenove publishes no drawing, but the board is the same as the LCDWiki ES3C50P 
 
 ## Before printing
 
-1. **Measure the speaker:** length × width × thickness. The model assumes 30 × 20 × 8 mm. If yours differs, change `spk` at the top of `case.scad` and run `build.py`.
-2. **Check the board with a ruler:** it should be 137 × 84 mm. That confirms it matches the drawing the model is built on.
+1. **Check the board with a ruler:** it should be 137 × 84 mm. That confirms it matches the drawing the model is built on.
+2. **A different speaker?** The model is set for 40 × 18 × 10 mm, measured with a ruler. One up to about 1 mm thicker or a few mm longer still fits; for anything else, change `spk` at the top of `case.scad` and run `build.py`.
 
 ## Print
 
@@ -57,7 +57,7 @@ For both parts: PLA (matte hides layer lines best), 0.4 mm nozzle, 0.2 mm layers
 
 ## Assembly
 
-1. Put the speaker in its pocket: reach in through the wedge's open front, membrane toward the slots, adhesive side toward the divider, and press it to stick.
+1. Put the speaker in: reach in through the wedge's open front and lower it into the slot behind the pad, membrane toward the slots, adhesive side toward the pad, cable end toward the side wall. Then press it onto the pad to stick.
 2. Lay the frame face down on a soft cloth. Drop the board in, screen down, with the USB-C socket at the opening in the side wall.
 3. Plug the speaker into the board's speaker socket, marked "Speak", on the bottom edge.
 4. Put the wedge on so its four corner holes sit over the board's corner holes.
