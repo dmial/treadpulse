@@ -158,6 +158,7 @@ stats::Window statsScene(int i, uint32_t goalSeconds) {
         e.startEpoch = kNov12 - daysAgo * kDay + 12 * 3600;
         e.endEpoch = e.startEpoch + minutes * 60;
         e.walkSeconds = minutes * 60;
+        e.steps = minutes * 104;  // about 4.2 km/h
         e.pulseSeconds = pulseMin * 60;
         for (size_t z = 0; z < zoneMin.size(); ++z) e.zoneSeconds[z] = zoneMin[z] * 60;
         walks.push_back(e);
@@ -173,7 +174,7 @@ stats::Window statsScene(int i, uint32_t goalSeconds) {
         walk(0, 40, 40, {2, 14, 24, 0, 0, 0});
         start = kNov12 + 12 * 3600;
     } else {
-        const uint32_t plain[14] = {95, 130, 0, 110, 125, 60, 140, 118, 0, 85, 150, 122, 45, 70};
+        const uint32_t plain[14] = {95, 130, 0, 110, 125, 60, 140, 118, 0, 85, 150, 122, 128, 70};
         for (int d = 0; d < 14; ++d) {
             if (plain[d] > 0) walk(13 - d, plain[d]);
         }
@@ -183,7 +184,12 @@ stats::Window statsScene(int i, uint32_t goalSeconds) {
         walk(0, 35, 35, {1, 4, 28, 2, 0, 0});
         start = kNov12 - 60 * kDay;
     }
-    return stats::lastDays(walks, nullptr, start, kNov12 + 21 * 3600 + 40 * 60, 0, goalSeconds);
+    const int64_t now = kNov12 + 21 * 3600 + 40 * 60;
+    stats::Window w = stats::lastDays(walks, nullptr, start, now, 0, goalSeconds);
+    stats::DayTotals totals(0);
+    for (const archive::Entry& e : walks) totals.add(e);
+    w.streakDays = totals.streak(now, nullptr, goalSeconds);
+    return w;
 }
 
 }  // namespace demo

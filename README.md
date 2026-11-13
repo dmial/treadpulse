@@ -16,7 +16,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 - **Pulse chart of the walk** with your two thresholds and where your pulse sat over the last 5 minutes.
 - **Beeps** when the pulse crosses a threshold, and when the treadmill link drops mid-walk.
 - **Day strip:** when you walked today, with each walk's minutes over it.
-- **The last two weeks:** swipe sideways for a bar per day, split by pulse zone (striped where you walked without the strap), with weeks set apart, your average day, the days on goal and the average day's minutes in zones 2 to 5. The history stays on the board, so this works without the cloud; the dashboard comes back when the belt starts.
+- **The last two weeks:** swipe sideways for a bar per day, split by pulse zone (striped where you walked without the strap), with weeks set apart, your average day in minutes and steps, the days on goal and in a row, and the average day's minutes in zones 2 to 5. The history stays on the board, so this works without the cloud; the dashboard comes back when the belt starts.
 - **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV; one line per walk also stays on the board for good. A walk under a minute (an accidental start) leaves no trace.
 - **No stale numbers:** grey means no fresh data from the treadmill or the strap.
 
@@ -24,7 +24,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 |---|---|---|
 | ![Pulse above the interval threshold](docs/images/interval.png) | ![Daily goal met: second lap, today's total as 2h 31m](docs/images/goal-met.png) | ![After the walk, two walks waiting for upload](docs/images/after-walk.png) |
 
-**Swipe sideways for the last two weeks.** One bar per day: the striped part is walking without the strap, the colors above it are the pulse zones, with each zone's minutes inside when they fit. On top, over the full days (today joins tomorrow): your average day, how many days reached the goal, and how many minutes of the average day fall into zones 2 to 5.
+**Swipe sideways for the last two weeks.** One bar per day: the striped part is walking without the strap, the colors above it are the pulse zones, with each zone's minutes inside when they fit. On top, over the full days (today joins tomorrow): your average day in minutes and steps, how many days reached the goal and how many in a row up to now, and how many minutes of the average day fall into zones 2 to 5.
 
 ![The last two weeks: a bar per day split by pulse zone, the average day and the days on goal](docs/images/two-weeks.png)
 

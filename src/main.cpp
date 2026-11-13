@@ -92,6 +92,8 @@ std::vector<walk::Summary> undatedHistory;
 // The history's last weeks for the statistics page, and when it began.
 std::vector<archive::Entry> recentWalks;
 int64_t historyStart = 0;
+// Every day of the history, for the days in a row on goal.
+stats::DayTotals dayTotals(userconfig::kDayResetHour);
 bool wasLinkUp = false;
 bool wasMoving = false;
 
@@ -125,6 +127,7 @@ void saveDay(const day::Walk* live) { storage.writeDayLog(String(dayLog.toCsv(li
 // Keeps a walk for the statistics page; walks older than its days are dropped.
 void rememberWalk(const archive::Entry& e) {
     if (historyStart == 0 || e.startEpoch < historyStart) historyStart = e.startEpoch;
+    dayTotals.add(e);
     recentWalks.push_back(e);
     int64_t newest = 0;
     for (const archive::Entry& w : recentWalks) newest = std::max(newest, w.startEpoch);
@@ -149,7 +152,7 @@ void addToHistory(const walk::Summary& sum) {
     const int64_t start = clocksync::epochAtUptime(sum.startMs);
     const int64_t end = clocksync::epochAtUptime(sum.endMs);
     if (start > 0 && end > 0) {
-        const archive::Entry e = archive::fromSummary(sum, start, end);
+        const archive::Entry e = archive::fromSummary(sum, start, end, dailyGoalSeconds());
         storage.appendHistory(e);
         rememberWalk(e);
     } else {
@@ -164,15 +167,19 @@ void dateHistory() {
     for (const walk::Summary& sum : walks) addToHistory(sum);
 }
 
-// Adds the seed's walks the history lacks; the next boots find them there.
-void mergeHistorySeed() {
-#ifdef HAS_HISTORY_SEED
+// Adds the seed's walks the history lacks and writes the goal into walks kept
+// before the history had it (the goal then was the goal now), so a later goal
+// never judges them; the next boots find both done.
+void tidyHistory() {
     std::vector<archive::Entry> entries = archive::parseAll(storage.readHistory().c_str());
-    const int added = archive::merge(entries, archive::parseAll(historyseed::kCsv));
-    if (added > 0) storage.writeHistory(String(archive::formatAll(entries).c_str()));
-    Serial.printf("[history] %d walks added from the seed, %u in all\n", added,
-                  static_cast<unsigned>(entries.size()));
+    int added = 0;
+#ifdef HAS_HISTORY_SEED
+    added = archive::merge(entries, archive::parseAll(historyseed::kCsv));
 #endif
+    const int goals = archive::fillGoals(entries, dailyGoalSeconds());
+    if (added > 0 || goals > 0) storage.writeHistory(String(archive::formatAll(entries).c_str()));
+    Serial.printf("[history] %d walks added from the seed, %d given the goal, %u in all\n", added, goals,
+                  static_cast<unsigned>(entries.size()));
 }
 
 // The ring's format, as last chosen by a tap, kept in NVS across power cuts.
@@ -325,12 +332,16 @@ void tick(uint32_t now) {
         if (tracker.inSession()) {
             liveEntry.startEpoch = clocksync::epochAtUptime(tracker.sessionStartMs());
             liveEntry.walkSeconds = tracker.walkSeconds();
+            liveEntry.steps = tracker.steps();
             liveEntry.pulseSeconds = tracker.pulseSeconds();
             liveEntry.zoneSeconds = tracker.zoneSeconds();
+            liveEntry.goalSeconds = dailyGoalSeconds();
         }
+        const archive::Entry* live = tracker.inSession() ? &liveEntry : nullptr;
         m.hasStats = true;
-        m.stats = stats::lastDays(recentWalks, tracker.inSession() ? &liveEntry : nullptr,
-                                  historyStart, epoch, userconfig::kDayResetHour, dailyGoalSeconds());
+        m.stats = stats::lastDays(recentWalks, live, historyStart, epoch, userconfig::kDayResetHour,
+                                  dailyGoalSeconds());
+        m.stats.streakDays = dayTotals.streak(epoch, live, dailyGoalSeconds());
     }
     m.columns = history.columns(screen::kChartColumns, screen::kChartMinSpanS);
     m.chartSpanS = history.spanSeconds(screen::kChartMinSpanS);
@@ -373,10 +384,10 @@ void setup() {
     storage.begin();
     // Before any new walk can start, close the one a power cut left open.
     storage.recoverUnfinishedWalks();
-    mergeHistorySeed();
+    clocksync::begin();  // the time zone, which the history's days follow
+    tidyHistory();
     loadHistory();
     beeper.begin();
-    clocksync::begin();
     dayLog.loadCsv(storage.readDayLog().c_str());
 
     showMessage("Connecting to Wi-Fi…");

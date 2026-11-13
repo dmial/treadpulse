@@ -99,11 +99,12 @@ constexpr int32_t kWalkMinutesBaseline = kDayBarY - 1 - kDayTextGap;
 constexpr int32_t kHourBaseline = kDayBarY + kDayBarH - 1 + kDayTextGap + kCaptionCap;
 constexpr int32_t kWalkMinutesGap = 6;  // least room between two walks' minutes
 
-// Statistics page: the totals over the days on top (the average day, the days
-// on goal, minutes in zones 2 to 5), then a bar per day, weeks set apart.
-constexpr int32_t kStatsNumberBaseline = 104;
-constexpr int32_t kAverageX = 24, kGoalX = 200;  // the days on goal move right past a long average
-constexpr int32_t kStatsBlockGap = 24;
+// Statistics page: the totals over the days on top (the average day in minutes
+// and steps, the days on goal and in a row, minutes in zones 2 to 5), then a
+// bar per day, weeks set apart. The totals share the zones' caption and rows.
+constexpr int32_t kAverageX = 24, kGoalX = 210;
+constexpr int32_t kTotalsRow2Baseline = 136;
+constexpr int32_t kUnitGap = 5;  // a number to its unit
 constexpr int32_t kZonesX = 470, kZoneColW = 80, kZoneLineW = 62, kZoneLineH = 4;
 constexpr int32_t kZonesCaptionBaseline = 62, kZoneMinutesBaseline = 100, kZoneLineY = 108;
 constexpr int32_t kZoneNameBaseline = 130;
@@ -352,6 +353,13 @@ void drawStripes(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2, int32_t 
     layer->_clip_area = clip;
 }
 
+// "11,240" for 11240.
+std::string groupThousands(uint32_t n) {
+    std::string s = std::to_string(n);
+    for (int i = static_cast<int>(s.size()) - 3; i > 0; i -= 3) s.insert(static_cast<size_t>(i), ",");
+    return s;
+}
+
 // Whole minutes a day over `days`, rounded: a minute or two in a hard zone
 // says enough, tenths would add nothing.
 uint32_t minutesADay(uint32_t totalSeconds, int days) {
@@ -578,14 +586,18 @@ void Dashboard::buildStats() {
     lv_obj_set_size(statsBody_, kWidth, kHeight);
     lv_obj_t* b = statsBody_;
 
-    average_ = makeLabel(b, &geo_44, kWhite, Align::Left, kAverageX, kStatsNumberBaseline, 150);
-    // Two-line captions beside the numbers, ending on their baseline.
-    averageCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kAverageX, kStatsNumberBaseline, 150,
-                                "min a day\non average");
-    goalDays_ = makeLabel(b, &geo_44, kWhite, Align::Left, kGoalX, kStatsNumberBaseline, 100);
-    goalOf_ = makeLabel(b, &geo_44, kMuted, Align::Left, kGoalX, kStatsNumberBaseline, 120);
-    goalCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kGoalX, kStatsNumberBaseline, 150,
-                             "days\non goal");
+    averagesCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kAverageX, kZonesCaptionBaseline, 180,
+                                 "a day on average");
+    average_ = makeLabel(b, &geo_26, kWhite, Align::Left, kAverageX, kZoneMinutesBaseline, 120);
+    averageUnit_ = makeLabel(b, &geo_16, kMuted, Align::Left, kAverageX, kZoneMinutesBaseline, 80, "min");
+    steps_ = makeLabel(b, &geo_26, kWhite, Align::Left, kAverageX, kTotalsRow2Baseline, 120);
+    stepsUnit_ = makeLabel(b, &geo_16, kMuted, Align::Left, kAverageX, kTotalsRow2Baseline, 80, "steps");
+    goalCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kGoalX, kZonesCaptionBaseline, 180,
+                             "days on goal");
+    goalDays_ = makeLabel(b, &geo_26, kWhite, Align::Left, kGoalX, kZoneMinutesBaseline, 80);
+    goalOf_ = makeLabel(b, &geo_26, kMuted, Align::Left, kGoalX, kZoneMinutesBaseline, 80);
+    streak_ = makeLabel(b, &geo_26, kWhite, Align::Left, kGoalX, kTotalsRow2Baseline, 80);
+    streakUnit_ = makeLabel(b, &geo_16, kMuted, Align::Left, kGoalX, kTotalsRow2Baseline, 100, "in a row");
     zonesCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kZonesX, kZonesCaptionBaseline, 320,
                               "time in pulse zones, a day on average");
     for (int i = 0; i < 4; ++i) {
@@ -1102,29 +1114,28 @@ void Dashboard::layoutStats() {
     // The totals count full days only; before the first one, a line instead.
     const bool totals = w.fullDays > 0;
     setVisible(noFullDay_, !totals);
-    for (lv_obj_t* o : {average_, averageCaption_, goalDays_, goalOf_, goalCaption_, zonesCaption_}) {
+    for (lv_obj_t* o : {averagesCaption_, average_, averageUnit_, steps_, stepsUnit_, goalCaption_, goalDays_,
+                        goalOf_, streak_, streakUnit_, zonesCaption_}) {
         setVisible(o, totals);
     }
     for (int i = 0; i < 4; ++i) {
         for (lv_obj_t* o : {zoneMinutes_[i], zoneUnits_[i], zoneLines_[i], zoneNames_[i]}) setVisible(o, totals);
     }
 
-    // "93 min a day on average", "3/7 days on goal": the captions follow the
-    // numbers, their second line on the numbers' baseline.
-    const int32_t captionBaseline = kStatsNumberBaseline - geo_16.line_height;
-    const std::string avg = std::to_string(w.averageSeconds / 60);
-    setText(average_, avg);
-    const int32_t captionX = kAverageX + textWidth(avg.c_str(), &geo_44) + 10;
-    place(averageCaption_, Align::Left, captionX, captionBaseline, 150);
-    const int32_t goalX =
-        std::max(kGoalX, captionX + textWidth(lv_label_get_text(averageCaption_), &geo_16) + kStatsBlockGap);
-    const std::string got = std::to_string(w.goalDays), of = "/" + std::to_string(w.fullDays);
+    // A number with its unit after it: "101 min", "11,240 steps", "4 in a row".
+    auto withUnit = [](lv_obj_t* number, lv_obj_t* unit, const std::string& text, int32_t x,
+                       int32_t baseline) {
+        setText(number, text);
+        place(unit, Align::Left, x + textWidth(text.c_str(), &geo_26) + kUnitGap, baseline, 100);
+    };
+    withUnit(average_, averageUnit_, std::to_string(w.averageSeconds / 60), kAverageX, kZoneMinutesBaseline);
+    withUnit(steps_, stepsUnit_, groupThousands(w.averageSteps), kAverageX, kTotalsRow2Baseline);
+    // "6/13": the days on goal of the full days, as the averages count them.
+    const std::string got = std::to_string(w.goalDays);
     setText(goalDays_, got);
-    place(goalDays_, Align::Left, goalX, kStatsNumberBaseline, 100);
-    setText(goalOf_, of);
-    const int32_t ofX = goalX + textWidth(got.c_str(), &geo_44) + 2;
-    place(goalOf_, Align::Left, ofX, kStatsNumberBaseline, 120);
-    place(goalCaption_, Align::Left, ofX + textWidth(of.c_str(), &geo_44) + 10, captionBaseline, 150);
+    setText(goalOf_, "/" + std::to_string(w.fullDays));
+    place(goalOf_, Align::Left, kGoalX + textWidth(got.c_str(), &geo_26) + 1, kZoneMinutesBaseline, 80);
+    withUnit(streak_, streakUnit_, std::to_string(w.streakDays), kGoalX, kTotalsRow2Baseline);
 
     // Minutes a day in zones 2..5 on average, over the same days as the average
     // day, so they compare with it; in their colors, a zone under half a

@@ -199,11 +199,18 @@ class Dashboard {
     lv_obj_t* statsSince_ = nullptr;
     lv_obj_t* statsWaiting_ = nullptr;  // no clock yet
     lv_obj_t* statsBody_ = nullptr;     // everything else, hidden without a clock
+    // Two columns of totals: a day on average (minutes, steps), days on goal
+    // (of the full days, in a row).
+    lv_obj_t* averagesCaption_ = nullptr;
     lv_obj_t* average_ = nullptr;
-    lv_obj_t* averageCaption_ = nullptr;
-    lv_obj_t* goalDays_ = nullptr;
-    lv_obj_t* goalOf_ = nullptr;  // "/14", gray
+    lv_obj_t* averageUnit_ = nullptr;
+    lv_obj_t* steps_ = nullptr;
+    lv_obj_t* stepsUnit_ = nullptr;
     lv_obj_t* goalCaption_ = nullptr;
+    lv_obj_t* goalDays_ = nullptr;
+    lv_obj_t* goalOf_ = nullptr;  // "/13", gray
+    lv_obj_t* streak_ = nullptr;
+    lv_obj_t* streakUnit_ = nullptr;
     lv_obj_t* zonesCaption_ = nullptr;
     lv_obj_t* zoneMinutes_[4] = {};  // zones 2..5
     lv_obj_t* zoneUnits_[4] = {};    // "min" after each

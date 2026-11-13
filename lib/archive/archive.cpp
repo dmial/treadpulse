@@ -12,11 +12,11 @@ namespace archive {
 
 const char* const kHeader =
     "start,end,walk_time_s,steps,distance_m,elevation_gain_m,heart_rate_s,rest_s,zone1_s,"
-    "zone2_s,zone3_s,zone4_s,zone5_s,avg_heart_rate_bpm,max_heart_rate_bpm";
+    "zone2_s,zone3_s,zone4_s,zone5_s,avg_heart_rate_bpm,max_heart_rate_bpm,daily_goal_s";
 
 namespace {
 
-constexpr size_t kFieldCount = 15;
+constexpr size_t kFieldCount = 15;  // without the goal, which came later
 constexpr int64_t kSameWalkS = 60;
 
 std::vector<std::string> splitFields(const std::string& line) {
@@ -48,8 +48,9 @@ uint32_t rounded(float v) { return v > 0.0f ? static_cast<uint32_t>(std::lround(
 
 }  // namespace
 
-Entry fromSummary(const walk::Summary& s, int64_t startEpoch, int64_t endEpoch) {
+Entry fromSummary(const walk::Summary& s, int64_t startEpoch, int64_t endEpoch, uint32_t goalSeconds) {
     Entry e;
+    e.goalSeconds = goalSeconds;
     e.startEpoch = startEpoch;
     e.endEpoch = endEpoch;
     e.walkSeconds = s.walkSeconds();
@@ -80,6 +81,8 @@ std::string formatEntry(const Entry& e) {
     } else {
         out += ",,";
     }
+    out += ",";
+    if (e.goalSeconds > 0) out += std::to_string(e.goalSeconds);
     return out;
 }
 
@@ -114,6 +117,11 @@ std::optional<Entry> parseEntry(const std::string& raw) {
     if (!avg || !max || *avg > 0xFFFF || *max > 0xFFFF) return std::nullopt;
     e.averageBpm = static_cast<uint16_t>(*avg);
     e.maxBpm = static_cast<uint16_t>(*max);
+    if (f.size() > kFieldCount) {
+        const std::optional<uint32_t> goal = parseCount(f[i++], true);
+        if (!goal) return std::nullopt;
+        e.goalSeconds = *goal;
+    }
     return e;
 }
 
@@ -147,6 +155,16 @@ int merge(std::vector<Entry>& entries, const std::vector<Entry>& extra) {
         return a.startEpoch < b.startEpoch;
     });
     return added;
+}
+
+int fillGoals(std::vector<Entry>& entries, uint32_t goalSeconds) {
+    int filled = 0;
+    for (Entry& e : entries) {
+        if (e.goalSeconds > 0) continue;
+        e.goalSeconds = goalSeconds;
+        ++filled;
+    }
+    return filled;
 }
 
 }  // namespace archive

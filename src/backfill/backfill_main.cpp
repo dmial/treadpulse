@@ -73,7 +73,9 @@ int history(const char* walksDir, const char* outPath) {
             printf("%s  skipped: no date or under a minute of walking\n", name.c_str());
             continue;
         }
-        const archive::Entry e = archive::fromSummary(*result.summary, *start, *end);
+        // The goal of now: the seed covers walks from before it ever changed.
+        const archive::Entry e =
+            archive::fromSummary(*result.summary, *start, *end, userconfig::kDailyGoalMinutes * 60);
         archive::merge(entries, {e});
         printf("%s  %s  %4u min  pulse %4u min\n", name.c_str(),
                walk::formatUtcTime(e.startEpoch).c_str(), e.walkSeconds / 60, e.pulseSeconds / 60);

@@ -25,8 +25,13 @@ Entry sample(int64_t start = k2026_11_12_0815) {
     e.zoneSeconds = {40, 900, 2400, 250, 0, 0};
     e.averageBpm = 121;
     e.maxBpm = 141;
+    e.goalSeconds = 7200;
     return e;
 }
+
+// A line as the history wrote it before the goal column.
+const char* const kLineWithoutGoal =
+    "2026-11-12T08:15:00Z,2026-11-12T09:17:05Z,3600,6120,4512,361,3590,40,900,2400,250,0,0,121,141";
 
 void assertSame(const Entry& a, const Entry& b) {
     TEST_ASSERT_EQUAL_INT64(a.startEpoch, b.startEpoch);
@@ -41,6 +46,7 @@ void assertSame(const Entry& a, const Entry& b) {
     }
     TEST_ASSERT_EQUAL_UINT16(a.averageBpm, b.averageBpm);
     TEST_ASSERT_EQUAL_UINT16(a.maxBpm, b.maxBpm);
+    TEST_ASSERT_EQUAL_UINT32(a.goalSeconds, b.goalSeconds);
 }
 
 }  // namespace
@@ -48,7 +54,7 @@ void assertSame(const Entry& a, const Entry& b) {
 void test_line_has_readable_times_and_all_columns() {
     TEST_ASSERT_EQUAL_STRING(
         "2026-11-12T08:15:00Z,2026-11-12T09:17:05Z,3600,6120,4512,361,3590,40,900,2400,250,0,0,"
-        "121,141",
+        "121,141,7200",
         archive::formatEntry(sample()).c_str());
 }
 
@@ -66,7 +72,7 @@ void test_walk_without_strap_leaves_pulse_empty() {
     e.maxBpm = 0;
     const std::string line = archive::formatEntry(e);
     TEST_ASSERT_EQUAL_STRING(
-        "2026-11-12T08:15:00Z,2026-11-12T09:17:05Z,3600,6120,4512,361,0,0,0,0,0,0,0,,",
+        "2026-11-12T08:15:00Z,2026-11-12T09:17:05Z,3600,6120,4512,361,0,0,0,0,0,0,0,,,7200",
         line.c_str());
     const auto back = archive::parseEntry(line);
     TEST_ASSERT_TRUE(back.has_value());
@@ -82,6 +88,8 @@ void test_header_and_damaged_lines_are_skipped() {
     TEST_ASSERT_FALSE(archive::parseEntry("2026-11-12T08:15:00Z,2026-11-12T09:17:05Z,36x0,6120,"
                                           "4512,361,3590,40,900,2400,250,0,0,121,141")
                           .has_value());
+    // A goal that is not a number.
+    TEST_ASSERT_FALSE(archive::parseEntry(std::string(kLineWithoutGoal) + ",2h").has_value());
     // Ends before it starts.
     TEST_ASSERT_FALSE(archive::parseEntry("2026-11-12T09:17:05Z,2026-11-12T08:15:00Z,3600,6120,"
                                           "4512,361,3590,40,900,2400,250,0,0,121,141")
@@ -92,6 +100,33 @@ void test_columns_added_later_are_ignored() {
     const auto e = archive::parseEntry(archive::formatEntry(sample()) + ",7,new");
     TEST_ASSERT_TRUE(e.has_value());
     assertSame(sample(), *e);
+}
+
+// The history kept no goal at first: such a line reads with goal 0, and a
+// line with the goal still reads on a firmware that knows nothing of it.
+void test_line_from_before_the_goal_reads_with_no_goal() {
+    const auto e = archive::parseEntry(kLineWithoutGoal);
+    TEST_ASSERT_TRUE(e.has_value());
+    Entry expected = sample();
+    expected.goalSeconds = 0;
+    assertSame(expected, *e);
+}
+
+void test_walk_with_unknown_goal_leaves_it_empty() {
+    Entry e = sample();
+    e.goalSeconds = 0;
+    TEST_ASSERT_EQUAL_STRING((std::string(kLineWithoutGoal) + ",").c_str(),
+                             archive::formatEntry(e).c_str());
+}
+
+void test_fill_goals_sets_only_missing_ones() {
+    std::vector<Entry> entries = {sample(), sample(k2026_11_12_0815 + 7200)};
+    entries[0].goalSeconds = 0;
+    entries[1].goalSeconds = 9000;
+    TEST_ASSERT_EQUAL(1, archive::fillGoals(entries, 7200));
+    TEST_ASSERT_EQUAL_UINT32(7200, entries[0].goalSeconds);
+    TEST_ASSERT_EQUAL_UINT32(9000, entries[1].goalSeconds);
+    TEST_ASSERT_EQUAL(0, archive::fillGoals(entries, 5400));  // nothing left to fill
 }
 
 void test_windows_line_ending_is_read() {
@@ -118,14 +153,14 @@ void test_from_summary_rounds_and_copies_pulse() {
     s.maxHeartRateBpm = 141;
     s.pulseSeconds = 3590;
     s.zoneSeconds = {40, 900, 2400, 250, 0, 0};
-    const Entry e = archive::fromSummary(s, k2026_11_12_0815, k2026_11_12_0815 + 3725);
+    const Entry e = archive::fromSummary(s, k2026_11_12_0815, k2026_11_12_0815 + 3725, 7200);
     assertSame(sample(), e);
 }
 
 void test_from_summary_without_strap() {
     walk::Summary s;
     s.walkMs = 600000;
-    const Entry e = archive::fromSummary(s, k2026_11_12_0815, k2026_11_12_0815 + 600);
+    const Entry e = archive::fromSummary(s, k2026_11_12_0815, k2026_11_12_0815 + 600, 7200);
     TEST_ASSERT_EQUAL_UINT16(0, e.averageBpm);
     TEST_ASSERT_EQUAL_UINT16(0, e.maxBpm);
     TEST_ASSERT_EQUAL_UINT32(0, e.pulseSeconds);
@@ -163,6 +198,9 @@ int main(int, char**) {
     RUN_TEST(test_walk_without_strap_leaves_pulse_empty);
     RUN_TEST(test_header_and_damaged_lines_are_skipped);
     RUN_TEST(test_columns_added_later_are_ignored);
+    RUN_TEST(test_line_from_before_the_goal_reads_with_no_goal);
+    RUN_TEST(test_walk_with_unknown_goal_leaves_it_empty);
+    RUN_TEST(test_fill_goals_sets_only_missing_ones);
     RUN_TEST(test_windows_line_ending_is_read);
     RUN_TEST(test_whole_file_reads_back);
     RUN_TEST(test_from_summary_rounds_and_copies_pulse);

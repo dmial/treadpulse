@@ -182,7 +182,7 @@ bool Storage::recoverWalk(const String& walk) {
     const std::optional<int64_t> start = replay.epochAt(sum.startMs);
     const std::optional<int64_t> end = replay.epochAt(sum.endMs);
     if (start && end) {
-        appendHistory(archive::fromSummary(sum, *start, *end));
+        appendHistory(archive::fromSummary(sum, *start, *end, userconfig::kDailyGoalMinutes * 60));
     } else {
         Serial.printf("[fs] walk %s has no date: not in the history\n", walk.c_str());
     }
