@@ -31,8 +31,9 @@ struct Day {
 
 struct Window {
     std::vector<Day> days;  // oldest first; the last one is today
-    // Over the tracked days, today included.
-    int trackedDays = 0;
+    // Over the full days: tracked and over, so not today. A morning without a
+    // walk yet would pull the averages down; today joins them tomorrow.
+    int fullDays = 0;
     int goalDays = 0;  // at or over the daily goal
     uint32_t averageSeconds = 0;
     std::array<uint32_t, pulse::kZoneCount + 1> zoneSeconds{};

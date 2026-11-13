@@ -24,7 +24,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 |---|---|---|
 | ![Pulse above the interval threshold](docs/images/interval.png) | ![Daily goal met: second lap, today's total as 2h 31m](docs/images/goal-met.png) | ![After the walk, two walks waiting for upload](docs/images/after-walk.png) |
 
-**Swipe sideways for the last two weeks.** One bar per day: the striped part is walking without the strap, the colors above it are the pulse zones, with each zone's minutes inside when they fit. On top, your average day, how many days reached the goal, and how many minutes of the average day fall into zones 2 to 5.
+**Swipe sideways for the last two weeks.** One bar per day: the striped part is walking without the strap, the colors above it are the pulse zones, with each zone's minutes inside when they fit. On top, over the full days (today joins tomorrow): your average day, how many days reached the goal, and how many minutes of the average day fall into zones 2 to 5.
 
 ![The last two weeks: a bar per day split by pulse zone, the average day and the days on goal](docs/images/two-weeks.png)
 

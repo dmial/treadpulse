@@ -49,8 +49,8 @@ void test_fourteen_days_end_today_with_weekdays() {
     TEST_ASSERT_EQUAL(12, w.days.back().dayOfMonth);
     TEST_ASSERT_EQUAL(20261102, w.days[3].key);
     TEST_ASSERT_EQUAL(0, w.days[3].weekday);  // Monday
-    TEST_ASSERT_EQUAL(14, w.trackedDays);
-    TEST_ASSERT_EQUAL(0, w.firstKey);  // the history covers the whole window
+    TEST_ASSERT_EQUAL(13, w.fullDays);  // today is not over yet
+    TEST_ASSERT_EQUAL(0, w.firstKey);   // the history covers the whole window
 }
 
 void test_days_before_the_history_are_not_tracked() {
@@ -63,36 +63,66 @@ void test_days_before_the_history_are_not_tracked() {
     const stats::Window w = stats::lastDays(walks, nullptr, walks[0].startEpoch,
                                             utc("2026-11-12T21:40:00Z"), 0, kGoal);
     TEST_ASSERT_EQUAL(20261111, w.firstKey);
-    TEST_ASSERT_EQUAL(2, w.trackedDays);
+    TEST_ASSERT_EQUAL(1, w.fullDays);  // the 11th; the 12th is today
     TEST_ASSERT_FALSE(w.days[11].tracked);
     TEST_ASSERT_TRUE(w.days[12].tracked);
     TEST_ASSERT_EQUAL_UINT32(900 + 2400, w.days[12].walkSeconds);
     TEST_ASSERT_EQUAL_UINT32(2400, w.days[12].pulseSeconds);
     TEST_ASSERT_EQUAL_UINT32(1800 + 1300, w.days[13].walkSeconds);
     TEST_ASSERT_EQUAL_UINT32(1560, w.zoneSeconds[2]);
-    TEST_ASSERT_EQUAL_UINT32(60 + 1000, w.zoneSeconds[0]);
-    TEST_ASSERT_EQUAL_UINT32((900 + 2400 + 1800 + 1300) / 2, w.averageSeconds);
+    TEST_ASSERT_EQUAL_UINT32(60, w.zoneSeconds[0]);
+    TEST_ASSERT_EQUAL_UINT32(900 + 2400, w.averageSeconds);
     TEST_ASSERT_EQUAL(0, w.goalDays);
 }
 
 void test_goal_days_and_average_count_days_without_walks() {
     const std::vector<Entry> walks = {
-        walkAt("2026-11-10T08:00:00Z", kGoal),       // on goal
-        walkAt("2026-11-12T08:00:00Z", kGoal + 60),  // over it
+        walkAt("2026-11-09T08:00:00Z", kGoal),       // on goal
+        walkAt("2026-11-11T08:00:00Z", kGoal + 60),  // over it
     };
-    const stats::Window w = stats::lastDays(walks, nullptr, utc("2026-11-10T08:00:00Z"),
+    const stats::Window w = stats::lastDays(walks, nullptr, utc("2026-11-09T08:00:00Z"),
                                             utc("2026-11-12T21:40:00Z"), 0, kGoal);
-    TEST_ASSERT_EQUAL(3, w.trackedDays);  // the 11th, with no walk, counts too
+    TEST_ASSERT_EQUAL(3, w.fullDays);  // the 10th, with no walk, counts too
     TEST_ASSERT_EQUAL(2, w.goalDays);
     TEST_ASSERT_EQUAL_UINT32((2 * kGoal + 60) / 3, w.averageSeconds);
 }
 
-void test_walk_in_progress_counts_today() {
+void test_walk_in_progress_shows_on_todays_bar() {
     const Entry live = walkAt("2026-11-12T21:00:00Z", 600, 600, {0, 0, 600, 0, 0, 0});
     const stats::Window w = stats::lastDays({}, &live, utc("2026-11-11T10:00:00Z"),
                                             utc("2026-11-12T21:40:00Z"), 0, kGoal);
     TEST_ASSERT_EQUAL_UINT32(600, w.days.back().walkSeconds);
-    TEST_ASSERT_EQUAL_UINT32(600, w.zoneSeconds[2]);
+    TEST_ASSERT_EQUAL_UINT32(600, w.days.back().zoneSeconds[2]);
+}
+
+// Today shows on its bar but stays out of the totals until it is over: a
+// morning without a walk yet would pull the averages down.
+void test_today_stays_out_of_the_totals() {
+    const std::vector<Entry> walks = {
+        walkAt("2026-11-11T10:00:00Z", 3000, 3000, {0, 1200, 1800, 0, 0, 0}),
+        walkAt("2026-11-12T10:00:00Z", kGoal, kGoal, {0, 0, kGoal, 0, 0, 0}),
+    };
+    const stats::Window w = stats::lastDays(walks, nullptr, walks[0].startEpoch,
+                                            utc("2026-11-12T21:40:00Z"), 0, kGoal);
+    TEST_ASSERT_EQUAL_UINT32(kGoal, w.days.back().walkSeconds);
+    TEST_ASSERT_EQUAL(1, w.fullDays);
+    TEST_ASSERT_EQUAL(0, w.goalDays);
+    TEST_ASSERT_EQUAL_UINT32(3000, w.averageSeconds);
+    TEST_ASSERT_EQUAL_UINT32(1800, w.zoneSeconds[2]);
+}
+
+// The day ends at the reset hour: at 02:00 with a 4 o'clock reset, yesterday
+// is still today.
+void test_today_ends_at_the_reset_hour() {
+    const std::vector<Entry> walks = {walkAt("2026-11-11T10:00:00Z", 3000)};
+    const stats::Window before = stats::lastDays(walks, nullptr, utc("2026-11-10T10:00:00Z"),
+                                                 utc("2026-11-12T02:00:00Z"), 4, kGoal);
+    TEST_ASSERT_EQUAL(1, before.fullDays);  // the 10th
+    TEST_ASSERT_EQUAL_UINT32(0, before.averageSeconds);
+    const stats::Window after = stats::lastDays(walks, nullptr, utc("2026-11-10T10:00:00Z"),
+                                                utc("2026-11-12T05:00:00Z"), 4, kGoal);
+    TEST_ASSERT_EQUAL(2, after.fullDays);
+    TEST_ASSERT_EQUAL_UINT32(1500, after.averageSeconds);
 }
 
 void test_walk_past_midnight_counts_on_its_first_day() {
@@ -109,7 +139,7 @@ void test_walks_outside_the_window_are_left_out() {
     const stats::Window w = stats::lastDays(walks, nullptr, walks[0].startEpoch,
                                             utc("2026-11-12T21:40:00Z"), 0, kGoal);
     TEST_ASSERT_EQUAL_UINT32(1000, w.days.front().walkSeconds);
-    TEST_ASSERT_EQUAL_UINT32(1000 / 14, w.averageSeconds);
+    TEST_ASSERT_EQUAL_UINT32(1000 / 13, w.averageSeconds);
 }
 
 // Summer time starts on 2026-03-29: that day has 23 hours and still gets its slot.
@@ -123,7 +153,8 @@ void test_short_day_of_summer_time_keeps_its_slot() {
 
 void test_without_history_only_today_is_tracked() {
     const stats::Window w = stats::lastDays({}, nullptr, 0, utc("2026-11-12T21:40:00Z"), 0, kGoal);
-    TEST_ASSERT_EQUAL(1, w.trackedDays);
+    TEST_ASSERT_EQUAL(0, w.fullDays);  // no totals before the first full day
+    TEST_ASSERT_EQUAL_UINT32(0, w.averageSeconds);
     TEST_ASSERT_EQUAL(20261112, w.firstKey);
     TEST_ASSERT_TRUE(w.days.back().tracked);
     TEST_ASSERT_FALSE(w.days[12].tracked);
@@ -139,7 +170,9 @@ int main(int, char**) {
     RUN_TEST(test_fourteen_days_end_today_with_weekdays);
     RUN_TEST(test_days_before_the_history_are_not_tracked);
     RUN_TEST(test_goal_days_and_average_count_days_without_walks);
-    RUN_TEST(test_walk_in_progress_counts_today);
+    RUN_TEST(test_walk_in_progress_shows_on_todays_bar);
+    RUN_TEST(test_today_stays_out_of_the_totals);
+    RUN_TEST(test_today_ends_at_the_reset_hour);
     RUN_TEST(test_walk_past_midnight_counts_on_its_first_day);
     RUN_TEST(test_walks_outside_the_window_are_left_out);
     RUN_TEST(test_short_day_of_summer_time_keeps_its_slot);

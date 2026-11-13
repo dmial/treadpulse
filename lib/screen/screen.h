@@ -206,8 +206,10 @@ class Dashboard {
     lv_obj_t* goalCaption_ = nullptr;
     lv_obj_t* zonesCaption_ = nullptr;
     lv_obj_t* zoneMinutes_[4] = {};  // zones 2..5
+    lv_obj_t* zoneUnits_[4] = {};    // "min" after each
     lv_obj_t* zoneLines_[4] = {};
     lv_obj_t* zoneNames_[4] = {};
+    lv_obj_t* noFullDay_ = nullptr;  // in place of the totals before the first full day
     lv_obj_t* bars_ = nullptr;
     lv_obj_t* goalLabel_ = nullptr;  // "2h" at the goal line
     std::vector<lv_obj_t*> barMinutes_;

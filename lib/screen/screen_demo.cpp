@@ -169,6 +169,9 @@ stats::Window statsScene(int i, uint32_t goalSeconds) {
         walk(0, 70);
         walk(0, 30, 30, {16, 14, 0, 0, 0, 0});
         start = kNov12 - kDay;
+    } else if (i == 2) {  // the history began today: no full day yet
+        walk(0, 40, 40, {2, 14, 24, 0, 0, 0});
+        start = kNov12 + 12 * 3600;
     } else {
         const uint32_t plain[14] = {95, 130, 0, 110, 125, 60, 140, 118, 0, 85, 150, 122, 45, 70};
         for (int d = 0; d < 14; ++d) {

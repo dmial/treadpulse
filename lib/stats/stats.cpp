@@ -77,13 +77,13 @@ Window lastDays(const std::vector<archive::Entry>& entries, const archive::Entry
 
     uint32_t total = 0;
     for (const Day& d : w.days) {
-        if (!d.tracked) continue;
-        ++w.trackedDays;
+        if (!d.tracked || d.key == todayKey) continue;  // today is not over yet
+        ++w.fullDays;
         if (d.walkSeconds >= goalSeconds) ++w.goalDays;
         total += d.walkSeconds;
         for (size_t z = 0; z < w.zoneSeconds.size(); ++z) w.zoneSeconds[z] += d.zoneSeconds[z];
     }
-    if (w.trackedDays > 0) w.averageSeconds = total / w.trackedDays;
+    if (w.fullDays > 0) w.averageSeconds = total / w.fullDays;
     if (firstKey > w.days.front().key) w.firstKey = firstKey;
     return w;
 }

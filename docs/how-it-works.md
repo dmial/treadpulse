@@ -57,7 +57,7 @@ Each line: start, end, walking time, steps, distance, elevation gain, walking se
 
 A walk that ends before the board knows the time gets its line once the clock is set; if the power goes before that, it has none (just as it is missing from the day ring). A walk recovered after a power loss gets its line at the next power-on.
 
-**The statistics page** (a sideways swipe on the dashboard) shows the last 14 days from this history plus the walk in progress. A walk counts on the day it started, as on the day ring. The average day, its minutes by pulse zone and the days on goal count the days since the history began, today included; days before it show no bar, a day without walking shows a dash. The dashboard comes back when the belt starts.
+**The statistics page** (a sideways swipe on the dashboard) shows the last 14 days from this history plus the walk in progress. A walk counts on the day it started, as on the day ring. The average day, its minutes by pulse zone and the days on goal count the full days since the history began: today shows its bar but joins the totals only once it is over, so a morning without a walk yet does not pull them down. Before the first full day the page says so instead of showing totals. Days before the history show no bar, a day without walking shows a dash. The dashboard comes back when the belt starts.
 
 **Walks from before the history.** Their per-second logs are in the cloud, and a computer-side tool turns them into history lines with the same code the board runs:
 

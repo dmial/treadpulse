@@ -104,7 +104,7 @@ constexpr int32_t kWalkMinutesGap = 6;  // least room between two walks' minutes
 constexpr int32_t kStatsNumberBaseline = 104;
 constexpr int32_t kAverageX = 24, kGoalX = 200;  // the days on goal move right past a long average
 constexpr int32_t kStatsBlockGap = 24;
-constexpr int32_t kZonesX = 470, kZoneColW = 76, kZoneLineW = 62, kZoneLineH = 4;
+constexpr int32_t kZonesX = 470, kZoneColW = 80, kZoneLineW = 62, kZoneLineH = 4;
 constexpr int32_t kZonesCaptionBaseline = 62, kZoneMinutesBaseline = 100, kZoneLineY = 108;
 constexpr int32_t kZoneNameBaseline = 130;
 constexpr int32_t kBarsTop = 168, kBarsBase = 404;  // the longest day reaches kBarsTop
@@ -587,10 +587,12 @@ void Dashboard::buildStats() {
     goalCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kGoalX, kStatsNumberBaseline, 150,
                              "days\non goal");
     zonesCaption_ = makeLabel(b, &geo_16, kMuted, Align::Left, kZonesX, kZonesCaptionBaseline, 320,
-                              "min a day by pulse zone, on average");
+                              "time in pulse zones, a day on average");
     for (int i = 0; i < 4; ++i) {
         const int32_t x = kZonesX + i * kZoneColW;
         zoneMinutes_[i] = makeLabel(b, &geo_26, kOffDim, Align::Left, x, kZoneMinutesBaseline, kZoneColW);
+        // "min" after the number, so it does not read as a pulse
+        zoneUnits_[i] = makeLabel(b, &geo_16, kOffDim, Align::Left, x, kZoneMinutesBaseline, kZoneColW, "min");
         zoneLines_[i] = makeBox(b);
         lv_obj_set_pos(zoneLines_[i], x, kZoneLineY);
         lv_obj_set_size(zoneLines_[i], kZoneLineW, kZoneLineH);
@@ -598,6 +600,8 @@ void Dashboard::buildStats() {
         zoneNames_[i] = makeLabel(b, &geo_16, kOffDim, Align::Left, x, kZoneNameBaseline, kZoneColW,
                                   ("zone " + std::to_string(i + 2)).c_str());
     }
+    noFullDay_ = makeLabel(b, &geo_16, kMuted, Align::Left, kAverageX, kZoneMinutesBaseline, 600,
+                           "Averages start after the first full day");
 
     bars_ = makeBox(b);
     lv_obj_set_pos(bars_, 0, kDividerTop);
@@ -1095,6 +1099,16 @@ void Dashboard::layoutStats() {
     setText(statsSince_, w.firstKey ? "since " + stats::shortDate(w.firstKey)
                                     : "last " + std::to_string(n) + " days");
 
+    // The totals count full days only; before the first one, a line instead.
+    const bool totals = w.fullDays > 0;
+    setVisible(noFullDay_, !totals);
+    for (lv_obj_t* o : {average_, averageCaption_, goalDays_, goalOf_, goalCaption_, zonesCaption_}) {
+        setVisible(o, totals);
+    }
+    for (int i = 0; i < 4; ++i) {
+        for (lv_obj_t* o : {zoneMinutes_[i], zoneUnits_[i], zoneLines_[i], zoneNames_[i]}) setVisible(o, totals);
+    }
+
     // "93 min a day on average", "3/7 days on goal": the captions follow the
     // numbers, their second line on the numbers' baseline.
     const int32_t captionBaseline = kStatsNumberBaseline - geo_16.line_height;
@@ -1104,7 +1118,7 @@ void Dashboard::layoutStats() {
     place(averageCaption_, Align::Left, captionX, captionBaseline, 150);
     const int32_t goalX =
         std::max(kGoalX, captionX + textWidth(lv_label_get_text(averageCaption_), &geo_16) + kStatsBlockGap);
-    const std::string got = std::to_string(w.goalDays), of = "/" + std::to_string(w.trackedDays);
+    const std::string got = std::to_string(w.goalDays), of = "/" + std::to_string(w.fullDays);
     setText(goalDays_, got);
     place(goalDays_, Align::Left, goalX, kStatsNumberBaseline, 100);
     setText(goalOf_, of);
@@ -1117,10 +1131,14 @@ void Dashboard::layoutStats() {
     // minute a day in gray.
     for (int i = 0; i < 4; ++i) {
         const int z = i + 2;
-        const uint32_t minutes = minutesADay(w.zoneSeconds[z], w.trackedDays);
+        const uint32_t minutes = minutesADay(w.zoneSeconds[z], w.fullDays);
         const bool any = minutes > 0;
-        setText(zoneMinutes_[i], std::to_string(minutes));
+        const std::string number = std::to_string(minutes);
+        setText(zoneMinutes_[i], number);
         setTextColor(zoneMinutes_[i], any ? kZoneColor[z] : kOffDim);
+        place(zoneUnits_[i], Align::Left, kZonesX + i * kZoneColW + textWidth(number.c_str(), &geo_26) + 4,
+              kZoneMinutesBaseline, kZoneColW);
+        setTextColor(zoneUnits_[i], any ? kMuted : kOffDim);
         setBg(zoneLines_[i], any ? kZoneColor[z] : kOffDim, LV_OPA_COVER);
         setTextColor(zoneNames_[i], any ? kLineLabel : kOffDim);
     }
