@@ -10,10 +10,10 @@ A 3D-printed desk stand for the Freenove FNK0115 board: a frame around the scree
 
 | File | What it is |
 | --- | --- |
-| `frame.stl`, `wedge.stl` | the two parts to print |
-| `viewer.html` | the 3D view, with the board, speaker and screws in place |
-| `case.scad` | the model the STL files are made from; all sizes are numbers at the top |
-| `build.py` | remakes the STL files and the 3D view after a change, and checks the fit |
+| [`frame.stl`](frame.stl), [`wedge.stl`](wedge.stl) | the two parts to print |
+| [`viewer.html`](viewer.html) | the 3D view, with the board, speaker and screws in place |
+| [`case.scad`](case.scad) | the model the STL files are made from; all sizes are numbers at the top |
+| [`build.py`](build.py) | remakes the STL files and the 3D view after a change, and checks the fit |
 
 ## Design
 

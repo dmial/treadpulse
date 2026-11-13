@@ -38,8 +38,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 | Treadmill | Any with Bluetooth [FTMS](https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/). Look for it in the specs; treadmills that work with apps like Zwift or Kinomap usually have it. Tested on the [Merach W50](https://merachfit.eu/products/merach-w50-treadmill). |
 | Heart rate strap (optional) | Any Bluetooth chest strap, e.g. [Polar H10](https://www.polar.com/en/sensors/h10-heart-rate-sensor). |
 | Power | Any USB-C phone charger. |
-
-A 3D-printed desk stand is in the works: [enclosure](enclosure/).
+| Desk stand (optional) | Print it: two parts, about 95 g of PLA, plus four 3 × 14 mm screws. [See it in 3D](https://dmial.github.io/treadpulse/enclosure/viewer.html); files, print settings and assembly in [enclosure](enclosure/). |
 
 ## How it works
 
