@@ -4,7 +4,7 @@
 
 A 3D-printed desk stand for the Freenove FNK0115 board: a frame around the screen and a wedge behind it that holds the screen tilted back 15°, like a desk alarm clock.
 
-**See it in 3D:** download [viewer.html](viewer.html) and open it in a browser (GitHub shows the file's code, not the page). You can turn the stand, take it apart, cut it open and show its sizes. The page loads its 3D library from the internet. GitHub also shows [frame.stl](frame.stl) and [wedge.stl](wedge.stl) in 3D.
+**See it in 3D:** [open the 3D view](https://dmial.github.io/treadpulse/enclosure/viewer.html). You can turn the stand, take it apart, cut it open and show its sizes. It is [viewer.html](viewer.html) from this folder, published with GitHub Pages; a downloaded copy opens in a browser too. Either way it loads its 3D library from the internet. GitHub also shows [frame.stl](frame.stl) and [wedge.stl](wedge.stl) in 3D.
 
 ## Files
 
@@ -71,4 +71,4 @@ All sizes are numbers at the top of `case.scad`. After a change, run:
 python3 enclosure/build.py
 ```
 
-It remakes `frame.stl` and `wedge.stl`, checks that the board, the speaker and a USB-C plug fit and that both parts print without supports, and refreshes the 3D view. It needs OpenSCAD 2025 or newer; on macOS: `brew install --cask openscad@snapshot`.
+It remakes `frame.stl` and `wedge.stl`, checks that the board, the speaker and a USB-C plug fit and that both parts print without supports, and refreshes the 3D view. It needs OpenSCAD 2025 or newer; on macOS: `brew install --cask openscad@snapshot`. Once the change is pushed, GitHub Pages updates the published 3D view within a few minutes.
