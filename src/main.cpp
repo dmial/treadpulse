@@ -7,14 +7,17 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include <algorithm>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "archive.h"
 #include "beeper.h"
 #include "ble_link.h"
+#include "board_log.h"
 #include "clock_sync.h"
 #include "day_log.h"
 #include "display.h"
@@ -84,6 +87,8 @@ uint32_t lastDaySaveMs = 0;
 // A walk just ended: go online at netDueMs without waiting for the retry.
 bool netNow = false;
 uint32_t netDueMs = 0;
+// How the last time online went; the status line shows it while walks wait.
+screen::NetProblem netProblem = screen::NetProblem::None;
 uint32_t lastStopCount = 0;  // the treadmill's stop reports already passed on
 uint32_t keptWalkSeconds = 0;  // the last kept walk's time, shown between walks
 uint32_t keptWalkSteps = 0;
@@ -102,6 +107,28 @@ bool clockDue(uint32_t now) {
 }
 
 int64_t nowEpoch() { return clocksync::isSynced() ? static_cast<int64_t>(time(nullptr)) : 0; }
+
+// What started the board this time, for the log.
+const char* resetReason() {
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:
+            return "power on";
+        case ESP_RST_EXT:
+            return "the reset pin";
+        case ESP_RST_SW:
+            return "a restart";
+        case ESP_RST_PANIC:
+            return "a crash";
+        case ESP_RST_INT_WDT:
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_WDT:
+            return "the watchdog";
+        case ESP_RST_BROWNOUT:
+            return "low voltage";
+        default:
+            return "something else";
+    }
+}
 
 // A blocking call follows a message, so it is drawn right away.
 void showMessage(const char* title, const char* detail = "") {
@@ -141,8 +168,8 @@ void loadHistory() {
     storage.forEachHistoryLine([](const std::string& line) {
         if (auto e = archive::parseEntry(line)) rememberWalk(*e);
     });
-    Serial.printf("[history] %u walks of the last %d days in memory\n",
-                  static_cast<unsigned>(recentWalks.size()), stats::kDays);
+    boardlog::printf("[history] %u walks of the last %d days in memory\n",
+                     static_cast<unsigned>(recentWalks.size()), stats::kDays);
 }
 
 // A kept walk goes to the history once it has a date: right away with a clock,
@@ -178,8 +205,8 @@ void tidyHistory() {
 #endif
     const int goals = archive::fillGoals(entries, dailyGoalSeconds());
     if (added > 0 || goals > 0) storage.writeHistory(String(archive::formatAll(entries).c_str()));
-    Serial.printf("[history] %d walks added from the seed, %d given the goal, %u in all\n", added, goals,
-                  static_cast<unsigned>(entries.size()));
+    boardlog::printf("[history] %d walks added from the seed, %d given the goal, %u in all\n", added, goals,
+                     static_cast<unsigned>(entries.size()));
 }
 
 // The ring's format, as last chosen by a tap, kept in NVS across power cuts.
@@ -199,21 +226,50 @@ void saveTodayInHours(bool on) {
 }
 
 // Wi-Fi shares the radio with Bluetooth, so it is switched on only between
-// walks: set the clock, upload finished walks, switch off again.
-void netSession(uint32_t uploadBudgetMs) {
+// walks: set the clock, upload finished walks and the log, switch off again.
+// `why` goes to the log, as does what Bluetooth is busy with at the time.
+void netSession(uint32_t uploadBudgetMs, const char* why) {
     lastNetMs = millis();
     netNow = false;
-    if (!net::connect(kWifiTimeoutMs)) return;
+    const int pending = storage.pendingCount();
+    boardlog::printf("[net] going online (%s), %d walk(s) to upload; Bluetooth: treadmill %s, strap %s%s\n",
+                     why, pending, treadmill.snapshot().connected ? "connected" : "not connected",
+                     heartRate.snapshot().connected ? "connected" : "not connected",
+                     BleLink::scanning() ? ", scanning" : "");
+    boardlog::flush();  // Wi-Fi takes seconds and the loop waits: keep what led here
+    const std::string waiting = pending > 0 ? screen::walkCount(pending) + " to upload" : "";
+    showMessage("Connecting to Wi-Fi…", waiting.c_str());
+    if (!net::connect(kWifiTimeoutMs)) {
+        netProblem = screen::NetProblem::NoWifi;
+        return;
+    }
 
     if (clockDue(millis()) && clocksync::syncNtp(kNtpTimeoutMs)) lastClockSyncMs = millis();
 
-    if (storage.pendingCount() > 0) {
-        showMessage("Uploading walks…", screen::walkCount(storage.pendingCount()).c_str());
+    bool uploadFailed = false;
+    if (pending > 0) {
+        showMessage("Uploading walks…", screen::walkCount(pending).c_str());
         const uploader::Result r = uploader::sendPending(storage, uploadBudgetMs);
-        Serial.printf("[upload] %d sent, %d left%s\n", r.sent, storage.pendingCount(),
-                      r.failed ? ", will retry" : "");
+        boardlog::printf("[upload] %d sent, %d left%s\n", r.sent, storage.pendingCount(),
+                         r.failed ? ", will retry" : "");
+        uploadFailed = r.failed;
     }
+    if (uploader::sendLog()) boardlog::println("[upload] log sent");
+    netProblem = uploadFailed ? screen::NetProblem::UploadFailed : screen::NetProblem::None;
     net::disconnect();
+}
+
+// When the board goes online next, for the status line: "18:15" with a clock,
+// "in 1 min" without. "" during a walk, which it waits out first.
+std::string nextNetText(uint32_t now) {
+    if (tracker.inSession()) return "";
+    const uint32_t retryMs = clocksync::isSynced() ? kNetRetryMs : kClockRetryMs;
+    const uint32_t dueMs = netNow ? netDueMs : lastNetMs + retryMs;
+    const int32_t leftMs = std::max<int32_t>(0, static_cast<int32_t>(dueMs - now));
+    if (clocksync::isSynced()) {
+        return clocksync::formatLocal(time(nullptr) + (leftMs + 999) / 1000, "%H:%M").c_str();
+    }
+    return "in " + std::to_string(std::max<int32_t>(1, (leftMs + 59999) / 60000)) + " min";
 }
 
 void maybeNetSession(uint32_t now) {
@@ -225,7 +281,7 @@ void maybeNetSession(uint32_t now) {
         const uint32_t retryMs = clocksync::isSynced() ? kNetRetryMs : kClockRetryMs;
         if (now - lastNetMs < retryMs) return;
     }
-    netSession(kUploadBudgetMs);
+    netSession(kUploadBudgetMs, netNow ? "after a walk" : storage.pendingCount() > 0 ? "retry" : "clock");
 }
 
 void tick(uint32_t now) {
@@ -244,7 +300,7 @@ void tick(uint32_t now) {
     if (heartRateUp) sample.heartRateBpm = hr.bpm;
     sample.treadmillStopped = snap.stopCount != lastStopCount;
     lastStopCount = snap.stopCount;
-    if (sample.treadmillStopped) Serial.println("[walk] the treadmill reported a stop");
+    if (sample.treadmillStopped) boardlog::println("[walk] the treadmill reported a stop");
 
     const walk::Events ev = tracker.tick(sample);
 
@@ -314,6 +370,8 @@ void tick(uint32_t now) {
                : storage.pendingCount() > 0 ? screen::Upload::Pending
                                             : screen::Upload::Done;
     m.pendingWalks = storage.pendingCount();
+    m.netProblem = netProblem;
+    m.nextTry = nextNetText(now);
     m.clock = clocksync::formatLocal(time(nullptr), "%H:%M").c_str();
     m.treadmillUp = linkUp;
     m.speedKmh = sample.speedKmh;
@@ -372,7 +430,7 @@ void tick(uint32_t now) {
 void setup() {
     Serial.begin(115200);
     delay(200);
-    Serial.println("\n[boot] treadmill display v4");
+    boardlog::printf("\n[boot] treadmill display v4, started by %s\n", resetReason());
 
     display::begin();
     touch::begin();  // before the speaker: both use one pin (board.h)
@@ -381,7 +439,8 @@ void setup() {
     dash.onTodayFormatChanged(saveTodayInHours);
     showMessage("Starting…");
 
-    storage.begin();
+    // The log goes to flash from here on, including the lines before.
+    if (storage.begin()) boardlog::begin();
     // Before any new walk can start, close the one a power cut left open.
     storage.recoverUnfinishedWalks();
     clocksync::begin();  // the time zone, which the history's days follow
@@ -390,15 +449,14 @@ void setup() {
     beeper.begin();
     dayLog.loadCsv(storage.readDayLog().c_str());
 
-    showMessage("Connecting to Wi-Fi…");
-    netSession(kBootUploadBudgetMs);
+    netSession(kBootUploadBudgetMs, "boot");
     dayLog.prune(nowEpoch());
 
     treadmill.begin();
     heartRate.begin();
-    Serial.printf("[mem] internal %u KB free, PSRAM %u KB free\n",
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    boardlog::printf("[mem] internal %u KB free, PSRAM %u KB free\n",
+                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
     nextTickMs = millis();
 }
 
@@ -420,6 +478,7 @@ void loop() {
 
     tick(now);
     maybeNetSession(now);
+    boardlog::flush();
 }
 
 #endif  // UI_DEMO

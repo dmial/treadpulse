@@ -12,6 +12,7 @@
 #include <soc/soc_caps.h>
 
 #include "board.h"
+#include "board_log.h"
 
 // ---------------------------------------------------------------- flash guard
 //
@@ -128,11 +129,11 @@ bool begin() {
     Arduino_RGB_Display* panel =
         new Arduino_RGB_Display(board::kLcdWidth, board::kLcdHeight, makePanel(), 0, true);
     if (!panel->begin()) {
-        Serial.println("[display] panel init failed");
+        boardlog::println("[display] panel init failed");
         return false;
     }
     s_lcdDmaChannel = findPanelDmaChannel();
-    if (s_lcdDmaChannel < 0) Serial.println("[display] panel DMA channel not found");
+    if (s_lcdDmaChannel < 0) boardlog::println("[display] panel DMA channel not found");
     gfx = panel;
     pinMode(board::kBacklight, OUTPUT);
     digitalWrite(board::kBacklight, HIGH);

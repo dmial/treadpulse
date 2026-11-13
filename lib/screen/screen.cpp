@@ -51,6 +51,9 @@ constexpr lv_opa_t kBandOpa[pulse::kZoneCount + 1] = {0, 20, 36, 26, 31, 36};
 
 // Status line, top
 constexpr int32_t kStatusBaseline = 26;
+// The upload status, right-aligned: room for "to upload: 1 · upload failed,
+// retry 18:15" without reaching the clock in the middle.
+constexpr int32_t kStatusWidth = 360;
 
 // The top row: the walk's timer, speed, incline and pulse share one baseline,
 // each with its caption underneath.
@@ -442,7 +445,7 @@ void Dashboard::build() {
 
 void Dashboard::buildStatus() {
     // Upload status on the right: the left corner stays clear above the timer.
-    status_ = makeLabel(dash_, &geo_18, kMuted, Align::Right, kWidth - 20, kStatusBaseline, 300);
+    status_ = makeLabel(dash_, &geo_18, kMuted, Align::Right, kWidth - 20, kStatusBaseline, kStatusWidth);
     clock_ = makeLabel(dash_, &geo_18, kMuted, Align::Center, kWidth / 2, kStatusBaseline, 120);
 }
 
@@ -577,7 +580,7 @@ void Dashboard::buildStats() {
     // The status line as on the dashboard, with the days covered on the left.
     statsSince_ = makeLabel(stats_, &geo_18, kMuted, Align::Left, 20, kStatusBaseline, 300);
     statsClock_ = makeLabel(stats_, &geo_18, kMuted, Align::Center, kWidth / 2, kStatusBaseline, 120);
-    statsStatus_ = makeLabel(stats_, &geo_18, kMuted, Align::Right, kWidth - 20, kStatusBaseline, 300);
+    statsStatus_ = makeLabel(stats_, &geo_18, kMuted, Align::Right, kWidth - 20, kStatusBaseline, kStatusWidth);
     statsWaiting_ = makeLabel(stats_, &geo_18, kMuted, Align::Center, kWidth / 2, 250, 600,
                               "Waiting for the clock…");
 
@@ -678,6 +681,11 @@ void Dashboard::updateStatus(const Model& m) {
         case Upload::Pending:
             text = "to upload: " + std::to_string(m.pendingWalks);
             color = kPending;
+            if (m.netProblem != NetProblem::None) {
+                text += m.netProblem == NetProblem::NoWifi ? " · no Wi-Fi" : " · upload failed";
+                if (!m.nextTry.empty()) text += ", retry " + m.nextTry;
+                color = kError;
+            }
             break;
         case Upload::StorageError:
             text = "storage error";

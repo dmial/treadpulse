@@ -1,6 +1,7 @@
 // Sends finished walks to the cloud receiver (cloud/ in this repo), oldest
 // first, and deletes each walk from flash once all its files are accepted.
-// Address and key come from src/secrets.h.
+// Also sends the board's own log (board_log.h). Address and key come from
+// src/secrets.h.
 #pragma once
 
 #include <Arduino.h>
@@ -16,5 +17,9 @@ struct Result {
 
 // Wi-Fi must be connected. Stops starting new walks after budgetMs.
 Result sendPending(Storage& storage, uint32_t budgetMs);
+
+// Sends the whole log, replacing the copy in the cloud. Wi-Fi must be
+// connected. Returns false on an error.
+bool sendLog();
 
 }  // namespace uploader

@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "board.h"
+#include "board_log.h"
 
 namespace touch {
 
@@ -105,7 +106,7 @@ bool begin() {
     } else if (answers(kAddressAlt)) {
         address = kAddressAlt;
     } else {
-        Serial.println("[touch] no controller");
+        boardlog::println("[touch] no controller");
         return false;
     }
 
@@ -119,8 +120,8 @@ bool begin() {
             outputH = h;
         }
     }
-    Serial.printf("[touch] GT%.3s at 0x%02X, %ux%u\n", reinterpret_cast<const char*>(id), address,
-                  outputW, outputH);
+    boardlog::printf("[touch] GT%.3s at 0x%02X, %ux%u\n", reinterpret_cast<const char*>(id), address,
+                     outputW, outputH);
 
     lv_indev_t* indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);

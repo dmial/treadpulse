@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "board.h"
+#include "board_log.h"
 
 namespace {
 constexpr uint32_t kSampleRate = 16000;
@@ -15,7 +16,7 @@ I2SClass i2s;
 bool Beeper::begin() {
     i2s.setPins(board::kI2sBclk, board::kI2sLrclk, board::kI2sData);
     ok_ = i2s.begin(I2S_MODE_STD, kSampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
-    if (!ok_) Serial.println("[beep] I2S init failed");
+    if (!ok_) boardlog::println("[beep] I2S init failed");
     return ok_;
 }
 

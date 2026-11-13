@@ -4,6 +4,9 @@
 
 #include <atomic>
 
+
+#include "board_log.h"
+
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -28,8 +31,8 @@ void onDisconnected(arduino_event_id_t, arduino_event_info_t info) {
     const wifi_event_sta_disconnected_t& d = info.wifi_sta_disconnected;
     // ASSOC_LEAVE is the board's own disconnect().
     if (!connecting || d.reason == WIFI_REASON_ASSOC_LEAVE) return;
-    Serial.printf("[wifi] refused: reason %u %s, signal %d dBm\n", d.reason,
-                  WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(d.reason)), d.rssi);
+    boardlog::printf("[wifi] refused: reason %u %s, signal %d dBm\n", d.reason,
+                     WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(d.reason)), d.rssi);
 }
 
 // One attempt: radio on, join, wait. On failure the radio is off again.
@@ -39,7 +42,7 @@ bool attempt(uint32_t timeoutMs) {
     WiFi.begin(secrets::kWifiSsid, secrets::kWifiPassword);
     while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) delay(200);
     if (WiFi.status() == WL_CONNECTED) return true;
-    Serial.printf("[wifi] attempt timed out, status %d\n", static_cast<int>(WiFi.status()));
+    boardlog::printf("[wifi] attempt timed out, status %d\n", static_cast<int>(WiFi.status()));
     disconnect();
     return false;
 }
@@ -48,7 +51,7 @@ bool attempt(uint32_t timeoutMs) {
 
 bool connect(uint32_t timeoutMs) {
     if (strlen(secrets::kWifiSsid) == 0) {
-        Serial.println("[wifi] no network in secrets.h");
+        boardlog::println("[wifi] no network in secrets.h");
         return false;
     }
     if (!handlerAdded) {
@@ -67,10 +70,11 @@ bool connect(uint32_t timeoutMs) {
     connecting = false;
 
     if (!ok) {
-        Serial.println("[wifi] no connection");
+        boardlog::println("[wifi] no connection");
         return false;
     }
-    Serial.printf("[wifi] connected in %lu ms\n", static_cast<unsigned long>(millis() - start));
+    boardlog::printf("[wifi] connected in %lu ms, signal %d dBm\n",
+                     static_cast<unsigned long>(millis() - start), static_cast<int>(WiFi.RSSI()));
     return true;
 }
 

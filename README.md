@@ -125,7 +125,7 @@ renders the screens above into BMP files in `screens/` (needs `src/user_config.h
 
 - **Time, speed and incline are grey.** The board doesn't see the treadmill. Close the treadmill's app on your phone.
 - **Dashes instead of the pulse.** The strap only wakes up when worn: wet the electrodes and put it on.
-- **`to upload` doesn't go down.** Check the Wi-Fi (2.4 GHz) and the receiver's address and key in `src/secrets.h`. The board's log shows `[wifi]` and `[upload]` lines: `pio device monitor -e freenove_s3_5in`. Opening the log restarts the board, so don't do it mid-walk.
+- **`to upload` doesn't go down.** In red it says why: `no Wi-Fi` or `upload failed`, and when the board tries again. Check the Wi-Fi (2.4 GHz) and the receiver's address and key in `src/secrets.h`. The board keeps its own log and sends it to the bucket as `logs/board.txt` whenever it gets online; look for `[wifi]` and `[upload]` lines. Live, over USB: `pio device monitor -e freenove_s3_5in`. Opening it restarts the board, so don't do it mid-walk.
 - **No clock.** The board hasn't reached the internet since power-on.
 
 More on walk files, uploads, power loss and the code: [how it works inside](docs/how-it-works.md).

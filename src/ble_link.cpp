@@ -2,6 +2,8 @@
 
 #include <array>
 
+#include "board_log.h"
+
 namespace {
 
 constexpr uint32_t kScanDurationMs = 5000;
@@ -49,6 +51,8 @@ void BleLink::begin(NotifyHandler onNotify) {
     if (gLinkCount < kMaxLinks) gLinks[gLinkCount++] = this;
 }
 
+bool BleLink::scanning() { return gLinkCount > 0 && NimBLEDevice::getScan()->isScanning(); }
+
 bool BleLink::needsDevice() const {
     if (connected_.load() || found_.load()) return false;
     return !failed_.load() || millis() - failedAtMs_.load() >= kRetryAfterFailureMs;
@@ -65,7 +69,7 @@ void BleLink::onAdvertisement(const NimBLEAdvertisedDevice* dev) {
 }
 
 void BleLink::onDisconnected(int reason) {
-    Serial.printf("[%s] disconnected, reason %d\n", tag_, reason);
+    boardlog::printf("[%s] disconnected, reason %d\n", tag_, reason);
     connected_.store(false);
 }
 
@@ -106,8 +110,8 @@ void BleLink::loopAll() {
 }
 
 bool BleLink::connect() {
-    Serial.printf("[%s] connecting to %s (%s)\n", tag_, foundName_.c_str(),
-                  foundAddress_.toString().c_str());
+    boardlog::printf("[%s] connecting to %s (%s)\n", tag_, foundName_.c_str(),
+                     foundAddress_.toString().c_str());
 
     if (!client_) {
         client_ = NimBLEDevice::createClient();
@@ -115,7 +119,7 @@ bool BleLink::connect() {
         client_->setConnectTimeout(kConnectTimeoutMs);
     }
     if (!client_->connect(foundAddress_)) {
-        Serial.printf("[%s] connect failed (busy with another app?)\n", tag_);
+        boardlog::printf("[%s] connect failed (busy with another app?)\n", tag_);
         return false;
     }
 
@@ -127,8 +131,8 @@ bool BleLink::connect() {
             if (onNotify_) onNotify_(bytes, len);
         });
     if (!subscribed) {
-        Serial.printf("[%s] no %s characteristic, disconnecting\n", tag_,
-                      characteristic_.toString().c_str());
+        boardlog::printf("[%s] no %s characteristic, disconnecting\n", tag_,
+                         characteristic_.toString().c_str());
         client_->disconnect();
         return false;
     }
@@ -137,7 +141,7 @@ bool BleLink::connect() {
 
     deviceName_ = foundName_;
     connected_.store(true);
-    Serial.printf("[%s] subscribed to %s\n", tag_, deviceName_.c_str());
+    boardlog::printf("[%s] subscribed to %s\n", tag_, deviceName_.c_str());
     return true;
 }
 
@@ -149,7 +153,7 @@ void BleLink::subscribeOptional(NimBLERemoteService* service) {
             chr && chr->canNotify() &&
             chr->subscribe(true, [handler](NimBLERemoteCharacteristic*, uint8_t* bytes, size_t len,
                                            bool) { handler(bytes, len); });
-        Serial.printf("[%s] %s %s\n", tag_, subscribed ? "also subscribed to" : "no optional",
-                      o.characteristic.toString().c_str());
+        boardlog::printf("[%s] %s %s\n", tag_, subscribed ? "also subscribed to" : "no optional",
+                         o.characteristic.toString().c_str());
     }
 }

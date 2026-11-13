@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "board_log.h"
 #include "clock_sync.h"
 #include "walk_settings.h"
 
@@ -73,14 +74,14 @@ bool Storage::begin() {
     // Formats the partition on first use (or if it is damaged beyond repair).
     ok_ = LittleFS.begin(true);
     if (!ok_) {
-        Serial.println("[fs] cannot mount flash storage");
+        boardlog::println("[fs] cannot mount flash storage");
         return false;
     }
     if (!LittleFS.exists(kWalksDir)) LittleFS.mkdir(kWalksDir);
     pendingCount_ = static_cast<int>(pendingWalks().size());
-    Serial.printf("[fs] %u of %u KB used, %d walk(s) to upload\n",
-                  static_cast<unsigned>(LittleFS.usedBytes() / 1024),
-                  static_cast<unsigned>(LittleFS.totalBytes() / 1024), pendingCount_);
+    boardlog::printf("[fs] %u of %u KB used, %d walk(s) to upload\n",
+                     static_cast<unsigned>(LittleFS.usedBytes() / 1024),
+                     static_cast<unsigned>(LittleFS.totalBytes() / 1024), pendingCount_);
     return true;
 }
 
@@ -122,7 +123,7 @@ int Storage::recoverUnfinishedWalks() {
 bool Storage::recoverWalk(const String& walk) {
     File f = LittleFS.open(walkFile(walk, kSamples), FILE_READ);
     if (!f) {
-        Serial.printf("[fs] %s: no log, deleted\n", walk.c_str());
+        boardlog::printf("[fs] %s: no log, deleted\n", walk.c_str());
         removeWalk(walk);
         return false;
     }
@@ -147,12 +148,12 @@ bool Storage::recoverWalk(const String& walk) {
     const walk::ReplayResult result = replay.finish();
     if (!result.summary) {
         // The power went out in the first seconds: nothing worth keeping.
-        Serial.printf("[fs] %s: no walking in the log, deleted\n", walk.c_str());
+        boardlog::printf("[fs] %s: no walking in the log, deleted\n", walk.c_str());
         removeWalk(walk);
         return false;
     }
     if (!result.summary->worthKeeping()) {
-        Serial.printf("[fs] %s: under a minute of walking, deleted\n", walk.c_str());
+        boardlog::printf("[fs] %s: under a minute of walking, deleted\n", walk.c_str());
         removeWalk(walk);
         giveBackWalkId(atoi(walk.c_str()));  // "0042_..." -> 42
         return false;
@@ -184,10 +185,10 @@ bool Storage::recoverWalk(const String& walk) {
     if (start && end) {
         appendHistory(archive::fromSummary(sum, *start, *end, userconfig::kDailyGoalMinutes * 60));
     } else {
-        Serial.printf("[fs] walk %s has no date: not in the history\n", walk.c_str());
+        boardlog::printf("[fs] walk %s has no date: not in the history\n", walk.c_str());
     }
-    Serial.printf("[fs] walk %s recovered: %s, %.0f m\n", walk.c_str(),
-                  walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
+    boardlog::printf("[fs] walk %s recovered: %s, %.0f m\n", walk.c_str(),
+                     walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
     return true;
 }
 
@@ -195,7 +196,7 @@ void Storage::makeRoom() {
     while (LittleFS.totalBytes() - LittleFS.usedBytes() < kMinFreeBytes) {
         const std::vector<String> walks = pendingWalks();
         if (walks.empty()) return;
-        Serial.printf("[fs] memory full, deleting unsent walk %s\n", walks.front().c_str());
+        boardlog::printf("[fs] memory full, deleting unsent walk %s\n", walks.front().c_str());
         removeWalk(walks.front());
     }
 }
@@ -223,7 +224,7 @@ void Storage::startWalk(uint32_t startUptimeMs) {
     lastFlushMs_ = startUptimeMs;
 
     if (!appendLine(walkFile(walk_, kSegments), walk::kSegmentsHeader, "")) return;
-    Serial.printf("[fs] walk %s started\n", walk_.c_str());
+    boardlog::printf("[fs] walk %s started\n", walk_.c_str());
 }
 
 void Storage::appendSample(const walk::SampleRow& r) {
@@ -252,8 +253,8 @@ void Storage::finishWalk(const walk::Summary& sum) {
         return;
     }
     pendingCount_ = static_cast<int>(pendingWalks().size());
-    Serial.printf("[fs] walk %s finished: %s, %.0f m\n", walk.c_str(),
-                  walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
+    boardlog::printf("[fs] walk %s finished: %s, %.0f m\n", walk.c_str(),
+                     walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
 }
 
 void Storage::discardWalk() {
@@ -264,7 +265,7 @@ void Storage::discardWalk() {
     walk_ = "";
     removeWalk(walk);
     giveBackWalkId(walkId_);
-    Serial.printf("[fs] walk %s: under a minute of walking, not kept\n", walk.c_str());
+    boardlog::printf("[fs] walk %s: under a minute of walking, not kept\n", walk.c_str());
 }
 
 bool Storage::writeSummary(const String& walk, const String& row) {
@@ -327,7 +328,7 @@ bool Storage::replaceFile(const char* path, const char* tmpPath, const String& c
 String Storage::readDayLog() { return readFile(kDayLog); }
 
 void Storage::writeDayLog(const String& csv) {
-    if (ok_ && !replaceFile(kDayLog, kDayLogTmp, csv)) Serial.println("[fs] cannot save the day log");
+    if (ok_ && !replaceFile(kDayLog, kDayLogTmp, csv)) boardlog::println("[fs] cannot save the day log");
 }
 
 void Storage::appendHistory(const archive::Entry& e) {
@@ -336,7 +337,7 @@ void Storage::appendHistory(const archive::Entry& e) {
     const bool isNew = !LittleFS.exists(kHistory);
     File f = LittleFS.open(kHistory, FILE_APPEND);
     if (!f) {
-        Serial.println("[fs] cannot add the walk to the history");
+        boardlog::println("[fs] cannot add the walk to the history");
         return;
     }
     if (isNew) f.println(archive::kHeader);
@@ -355,10 +356,10 @@ void Storage::forEachHistoryLine(const std::function<void(const std::string&)>& 
 }
 
 void Storage::writeHistory(const String& csv) {
-    if (ok_ && !replaceFile(kHistory, kHistoryTmp, csv)) Serial.println("[fs] cannot save the history");
+    if (ok_ && !replaceFile(kHistory, kHistoryTmp, csv)) boardlog::println("[fs] cannot save the history");
 }
 
 void Storage::fail(const char* what) {
-    Serial.printf("[fs] error: %s\n", what);
+    boardlog::printf("[fs] error: %s\n", what);
     ok_ = false;
 }

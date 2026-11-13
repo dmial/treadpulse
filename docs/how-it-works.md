@@ -77,13 +77,26 @@ Wi-Fi shares the radio with Bluetooth, so it stays off while you walk. The board
 - a minute after a walk ends, so that starting again right away isn't held up by Wi-Fi;
 - after a failed attempt, while no walk is going on: every minute while the clock is not set yet (without it the daily ring shows only walks since power-on), otherwise every 10 minutes.
 
-Each time it tries to join the network twice, 10 seconds each, and writes to the serial log why the network refused.
+Each time it tries to join the network twice, 10 seconds each, and writes to its log why the network refused. Meanwhile the screen says "Connecting to Wi-Fi…". When the attempt fails, the status line turns red while walks wait: `to upload: 1 · no Wi-Fi, retry 18:15` (or `upload failed` when the network was there but the receiver didn't take the files). Without a clock the time reads `in 1 min`; during a walk the retry time is left out, since the board waits for the walk to end.
 
-A walk goes up file by file, the summary last. Once the receiver has confirmed all three files, the board deletes the walk. In the bucket, files keep the same paths: `walks/<walk>/<file>`.
+A walk goes up file by file, the summary last. Once the receiver has confirmed all three files, the board deletes the walk. In the bucket, files keep the same paths: `walks/<walk>/<file>`. After the walks, the board sends its log (below).
 
 About 9.9 MB of the board's memory is set aside for walks; an hour of walking takes about 250 KB, so roughly 40 hours fit. When memory runs out, starting a new walk deletes the oldest walk that is not uploaded yet.
 
-The receiver (`cloud/`) only accepts writes: nothing can be read back through it. It never overwrites a stored file: the same file again answers "already stored" (a retried upload), a different file under the same name is refused (409).
+The receiver (`cloud/`) only accepts writes: nothing can be read back through it. It never overwrites a stored walk file: the same file again answers "already stored" (a retried upload), a different file under the same name is refused (409). The log is the one exception: each upload replaces `logs/board.txt`.
+
+## The board's log
+
+The board writes what happens to it, one line per event: power-on and what caused it, Wi-Fi attempts with the reason for a refusal and the signal strength, what Bluetooth was busy with when Wi-Fi went on, uploads, walks started and finished, treadmill and strap connections. Each line goes to the USB port, as before, and to `/log.txt` in the board's memory, starting with the time (UTC once the clock is set, time since power-on before that):
+
+```
+2026-11-13T12:14:31Z [net] going online (after a walk), 1 walk(s) to upload; Bluetooth: treadmill connected, strap not connected, scanning
+2026-11-13T12:14:35Z [wifi] connected in 3850 ms, signal -71 dBm
+```
+
+So a failure is still there to read after the fact, without a computer listening at the time. Every time the board is online it sends the whole log to the bucket as `logs/board.txt`; a failed attempt shows up there after the next one that works. At 32 KB `/log.txt` becomes `/log.old`, so the log keeps the last 32–64 KB, a few weeks of events.
+
+Reading it from the bucket: `npx wrangler r2 object get treadmill-walks/logs/board.txt --remote --file board.txt` (from `cloud/`).
 
 ## When things go wrong
 
@@ -115,7 +128,8 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `src/storage.*` | The board's memory (LittleFS): walk logs, upload queue, day log, history |
 | `src/backfill/` | Computer-side tool for walk logs downloaded from the cloud: history lines for the board, walk files rewritten as today's firmware writes them (`pio run -e backfill`) |
 | `src/net.*` | Wi-Fi on for a session, then off |
-| `src/uploader.*` | Uploads walks over HTTPS |
+| `src/uploader.*` | Uploads walks and the log over HTTPS |
+| `src/board_log.*` | The board's log: to the USB port and to `/log.txt` in its memory |
 | `src/clock_sync.*` | Time from NTP |
 | `src/beeper.*` | Beeps through the speaker (I2S) |
 | `src/board.h` | Board pins, from Freenove's examples |

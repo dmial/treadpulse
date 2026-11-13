@@ -33,6 +33,8 @@ class BleLink {
 
     // Call often from loop(): drives the shared scanner and connects every link.
     static void loopAll();
+    // True while the shared scanner searches; it takes the whole radio meanwhile.
+    static bool scanning();
 
     // Called from NimBLE callbacks (host task).
     void onAdvertisement(const NimBLEAdvertisedDevice* dev);

@@ -4,6 +4,8 @@
 #include <LittleFS.h>
 #include <NetworkClientSecure.h>
 
+#include "board_log.h"
+
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -20,64 +22,85 @@ namespace {
 
 constexpr uint32_t kConnectTimeoutMs = 10000;
 constexpr uint32_t kResponseTimeoutMs = 20000;
+// The receiver keeps one copy of the log under this name (cloud/src/index.ts).
+constexpr const char* kLogPath = "logs/board.txt";
 
 enum class Put { Ok, Conflict, Error };
 
+bool configured() {
+    if (strlen(secrets::kUploadUrl) > 0 && strlen(secrets::kUploadToken) > 0) return true;
+    boardlog::println("[upload] no receiver in secrets.h, nothing is sent");
+    return false;
+}
+
+// One TLS connection, reused for every request through it.
+struct Connection {
+    NetworkClientSecure client;
+    HTTPClient http;
+
+    Connection() {
+        client.setCACertBundle(kCaBundleStart, kCaBundleEnd - kCaBundleStart);
+        http.setReuse(true);
+        http.setConnectTimeout(kConnectTimeoutMs);
+        http.setTimeout(kResponseTimeoutMs);
+    }
+
+    // Opens a PUT to <receiver>/<path> with the key; false if the address is bad.
+    bool beginPut(const String& path, const char* contentType) {
+        String base = secrets::kUploadUrl;
+        while (base.endsWith("/")) base.remove(base.length() - 1);
+        if (!http.begin(client, base + "/" + path)) return false;
+        http.addHeader("Authorization", String("Bearer ") + secrets::kUploadToken);
+        http.addHeader("Content-Type", contentType);
+        return true;
+    }
+
+    // Closes the request; logs it when the receiver did not take the file.
+    Put finish(int code, const String& what) {
+        const String body = code > 0 ? http.getString() : String();
+        http.end();
+        if (code == 200 || code == 201) return Put::Ok;
+        boardlog::printf("[upload] %s: %d %s\n", what.c_str(), code,
+                         code > 0 ? body.c_str() : HTTPClient::errorToString(code).c_str());
+        // 409: the cloud already holds a different file under this name.
+        return code == 409 ? Put::Conflict : Put::Error;
+    }
+};
+
 // PUT <url>/walks/<walk>/<file> with the file as the body.
-Put putFile(HTTPClient& http, NetworkClientSecure& client, const String& walk, const char* file) {
+Put putWalkFile(Connection& conn, const String& walk, const char* file) {
     const String path = Storage::walkFile(walk, file);
     File f = LittleFS.open(path, FILE_READ);
     if (!f) {
-        Serial.printf("[upload] %s missing, skipped\n", path.c_str());
+        boardlog::printf("[upload] %s missing, skipped\n", path.c_str());
         return Put::Ok;
     }
-
-    String base = secrets::kUploadUrl;
-    while (base.endsWith("/")) base.remove(base.length() - 1);
-    const String url = base + "/walks/" + walk + "/" + file;
-
-    if (!http.begin(client, url)) {
+    if (!conn.beginPut("walks/" + walk + "/" + file, "text/csv")) {
         f.close();
         return Put::Error;
     }
-    http.addHeader("Authorization", String("Bearer ") + secrets::kUploadToken);
-    http.addHeader("Content-Type", "text/csv");
-    const int code = http.sendRequest("PUT", &f, f.size());
+    const int code = conn.http.sendRequest("PUT", &f, f.size());
     f.close();
-    const String body = code > 0 ? http.getString() : String();
-    http.end();
-
-    if (code == 200 || code == 201) return Put::Ok;
-    Serial.printf("[upload] %s/%s: %d %s\n", walk.c_str(), file,
-                  code, code > 0 ? body.c_str() : HTTPClient::errorToString(code).c_str());
-    // 409: the cloud already holds a different file under this name.
-    return code == 409 ? Put::Conflict : Put::Error;
+    return conn.finish(code, walk + "/" + file);
 }
 
 }  // namespace
 
 Result sendPending(Storage& storage, uint32_t budgetMs) {
     Result result;
-    if (strlen(secrets::kUploadUrl) == 0 || strlen(secrets::kUploadToken) == 0) {
-        Serial.println("[upload] no receiver in secrets.h, walks stay in flash");
+    if (!configured()) {
         result.failed = true;
         return result;
     }
 
-    NetworkClientSecure client;
-    client.setCACertBundle(kCaBundleStart, kCaBundleEnd - kCaBundleStart);
-    HTTPClient http;
-    http.setReuse(true);  // one TLS handshake for all files
-    http.setConnectTimeout(kConnectTimeoutMs);
-    http.setTimeout(kResponseTimeoutMs);
-
+    Connection conn;
     const uint32_t start = millis();
     for (const String& walk : storage.pendingWalks()) {
         if (millis() - start >= budgetMs) break;
 
         bool walkOk = true;
         for (const char* file : Storage::kWalkFiles) {
-            const Put put = putFile(http, client, walk, file);
+            const Put put = putWalkFile(conn, walk, file);
             if (put == Put::Ok) continue;
             walkOk = false;
             if (put == Put::Error) result.failed = true;
@@ -88,9 +111,22 @@ Result sendPending(Storage& storage, uint32_t budgetMs) {
 
         storage.removeWalk(walk);
         ++result.sent;
-        Serial.printf("[upload] walk %s sent\n", walk.c_str());
+        boardlog::printf("[upload] walk %s sent\n", walk.c_str());
     }
     return result;
+}
+
+bool sendLog() {
+    if (!configured()) return false;
+    boardlog::flush();
+    size_t size = 0;
+    boardlog::Buffer log = boardlog::readAll(size);
+    if (size == 0) return true;
+
+    Connection conn;
+    if (!conn.beginPut(kLogPath, "text/plain; charset=utf-8")) return false;
+    const int code = conn.http.sendRequest("PUT", log.get(), size);
+    return conn.finish(code, "log") == Put::Ok;
 }
 
 }  // namespace uploader

@@ -38,6 +38,8 @@ constexpr int kChartColumns = 430;
 constexpr uint32_t kChartMinSpanS = 10 * 60;
 
 enum class Upload { Done, Pending, StorageError };
+// Why the last time online failed; shown while walks wait for upload.
+enum class NetProblem { None, NoWifi, UploadFailed };
 
 // "1 walk", "3 walks".
 std::string walkCount(int n);
@@ -46,6 +48,8 @@ struct Model {
     // Status line
     Upload upload = Upload::Done;
     int pendingWalks = 0;
+    NetProblem netProblem = NetProblem::None;
+    std::string nextTry;  // next time online, "18:15" or "in 1 min"; "" during a walk
     std::string clock;  // "14:32", "" while the clock is not set
 
     // From the treadmill; gray while its link is down

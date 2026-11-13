@@ -4,10 +4,13 @@
 //   <walk>  e.g. 0042_2026-11-10T0815Z or 0042_nodate_9f3a1c2e
 //   <file>  samples.csv, segments.csv or summary.csv
 //
+//   PUT /logs/board.txt           the board's own log (src/board_log.h)
+//
 // Write-only: nothing can be read back through this Worker, so the key baked
-// into the board's firmware cannot expose stored data. A stored file is never
-// overwritten: the same content again answers 200 (a retried upload),
-// different content answers 409.
+// into the board's firmware cannot expose stored data. A stored walk file is
+// never overwritten: the same content again answers 200 (a retried upload),
+// different content answers 409. The log is one file that each upload
+// replaces: the board always sends all of it.
 
 export interface Env {
   WALKS: R2Bucket;
@@ -18,6 +21,9 @@ const KEY = /^walks\/\d{4,}_[0-9A-Za-z_-]+\/(samples|segments|summary)\.csv$/;
 // A 3-hour walk is ~750 KB. Kept tight: R2 has no spending cap, so this bounds
 // what a leaked key could store.
 const MAX_BYTES = 4 * 1024 * 1024;
+const LOG_KEY = "logs/board.txt";
+// The board keeps at most 64 KB of log; some room above that.
+const MAX_LOG_BYTES = 256 * 1024;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -25,6 +31,7 @@ export default {
     if (!(await authorized(request, env))) return reply(401, "wrong or missing token");
 
     const key = decodeURIComponent(new URL(request.url).pathname.slice(1));
+    if (key === LOG_KEY) return storeLog(request, env);
     if (!KEY.test(key)) return reply(400, "unexpected path");
 
     const declared = Number(request.headers.get("Content-Length") ?? "0");
@@ -47,6 +54,17 @@ export default {
     return reply(201, "stored");
   },
 } satisfies ExportedHandler<Env>;
+
+async function storeLog(request: Request, env: Env): Promise<Response> {
+  const declared = Number(request.headers.get("Content-Length") ?? "0");
+  if (declared > MAX_LOG_BYTES) return reply(413, "log too large");
+  const body = await request.arrayBuffer();
+  if (body.byteLength > MAX_LOG_BYTES) return reply(413, "log too large");
+  await env.WALKS.put(LOG_KEY, body, {
+    httpMetadata: { contentType: "text/plain; charset=utf-8" },
+  });
+  return reply(200, "log stored");
+}
 
 async function authorized(request: Request, env: Env): Promise<boolean> {
   const header = request.headers.get("Authorization") ?? "";

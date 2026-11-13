@@ -1,5 +1,7 @@
 #include "clock_sync.h"
 
+#include "board_log.h"
+
 #if __has_include("user_config.h")
 #include "user_config.h"
 #else
@@ -29,7 +31,7 @@ bool syncNtp(uint32_t timeoutMs) {
     configTzTime(userconfig::kTimezone, "pool.ntp.org", "time.google.com");
     while (!isSynced() && millis() - start < timeoutMs) delay(200);
     const bool ok = isSynced();
-    Serial.printf("[clock] %s\n", ok ? formatUtc(time(nullptr)).c_str() : "sync failed");
+    boardlog::printf("[clock] %s\n", ok ? formatUtc(time(nullptr)).c_str() : "sync failed");
     return ok;
 }
 

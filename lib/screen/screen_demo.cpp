@@ -67,6 +67,7 @@ const char* sceneName(int i) {
     static const char* const kNames[kSceneCount] = {
         "walk",     "over_ceiling", "interval",   "no_treadmill",
         "no_strap", "goal_met",     "fresh_walk", "pending_upload",
+        "upload_failed",
     };
     return i >= 0 && i < kSceneCount ? kNames[i] : "?";
 }
@@ -128,6 +129,17 @@ Model scene(int i, uint32_t goalSeconds) {
             m.pulseUp = false;
             m.upload = Upload::Pending;
             m.pendingWalks = 2;
+            m.clock = "18:05";
+            m.today.nowSec = 18 * 3600 + 5 * 60;
+            break;
+        case 8:  // the same evening, the last upload failed (the longest status text)
+            m.treadmillUp = false;
+            m.walking = false;
+            m.pulseUp = false;
+            m.upload = Upload::Pending;
+            m.pendingWalks = 1;
+            m.netProblem = NetProblem::UploadFailed;
+            m.nextTry = "18:15";
             m.clock = "18:05";
             m.today.nowSec = 18 * 3600 + 5 * 60;
             break;
