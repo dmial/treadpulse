@@ -225,6 +225,15 @@ void saveTodayInHours(bool on) {
     prefs.end();
 }
 
+// Internal RAM is what Wi-Fi and Bluetooth need and what runs out first; the
+// largest free block shows whether a big buffer still fits.
+void logMemory() {
+    boardlog::printf("[mem] internal %u KB free (largest block %u KB), PSRAM %u KB free\n",
+                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                     static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024),
+                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
 // Wi-Fi shares the radio with Bluetooth, so it is switched on only between
 // walks: set the clock, upload finished walks and the log, switch off again.
 // `why` goes to the log, as does what Bluetooth is busy with at the time.
@@ -236,6 +245,7 @@ void netSession(uint32_t uploadBudgetMs, const char* why) {
                      why, pending, treadmill.snapshot().connected ? "connected" : "not connected",
                      heartRate.snapshot().connected ? "connected" : "not connected",
                      BleLink::scanning() ? ", scanning" : "");
+    logMemory();
     boardlog::flush();  // Wi-Fi takes seconds and the loop waits: keep what led here
     const std::string waiting = pending > 0 ? screen::walkCount(pending) + " to upload" : "";
     showMessage("Connecting to Wi-Fi…", waiting.c_str());
@@ -454,9 +464,7 @@ void setup() {
 
     treadmill.begin();
     heartRate.begin();
-    boardlog::printf("[mem] internal %u KB free, PSRAM %u KB free\n",
-                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
-                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    logMemory();
     nextTickMs = millis();
 }
 
