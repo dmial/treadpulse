@@ -13,9 +13,12 @@ struct Key {
 };
 
 // A walk at 3.5 -> 4.5 -> 4.7 km/h and 3 -> 8 -> 11 % incline, the pulse
-// following `keys` with a little natural wobble.
-walk::History makeWalk(uint32_t seconds, const std::vector<Key>& keys) {
+// following `keys` with a little natural wobble; its seconds by pulse zone go
+// to `zoneSeconds`.
+walk::History makeWalk(uint32_t seconds, const std::vector<Key>& keys, const pulse::Borders& zones,
+                       std::array<uint32_t, pulse::kZoneCount + 1>& zoneSeconds) {
     walk::History h;
+    zoneSeconds = {};
     for (uint32_t s = 0; s < seconds; ++s) {
         const float min = s / 60.0f;
         float bpm = keys.back().bpm;
@@ -30,6 +33,7 @@ walk::History makeWalk(uint32_t seconds, const std::vector<Key>& keys) {
         const float speed = min < 3 ? 3.5f : min < 10 ? 4.5f : 4.7f;
         const float incline = min < 5 ? 3.0f : min < 17 ? 8.0f : 11.0f;
         h.push(static_cast<uint16_t>(std::lround(bpm)), speed, incline);
+        ++zoneSeconds[pulse::zoneOf(zones, std::round(bpm))];
     }
     return h;
 }
@@ -72,7 +76,7 @@ const char* sceneName(int i) {
     return i >= 0 && i < kSceneCount ? kNames[i] : "?";
 }
 
-Model scene(int i, uint32_t goalSeconds) {
+Model scene(int i, uint32_t goalSeconds, const pulse::Borders& zones) {
     Model m;
     m.goalSeconds = goalSeconds;
     m.clock = "14:32";
@@ -147,7 +151,7 @@ Model scene(int i, uint32_t goalSeconds) {
             break;
     }
 
-    const walk::History h = makeWalk(seconds, keys);
+    const walk::History h = makeWalk(seconds, keys, zones, m.walkZoneSeconds);
     m.walkSeconds = h.seconds();
     m.walkSteps = stepsOver(m.walkSeconds);
     m.columns = h.columns(kChartColumns, kChartMinSpanS);

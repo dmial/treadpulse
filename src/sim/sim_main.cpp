@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
     for (const bool inHours : {false, true}) {
         dash.setTodayInHours(inHours);
         for (int i = 0; i < screen::demo::kSceneCount; ++i) {
-            dash.update(screen::demo::scene(i, dailyGoalSeconds()));
+            dash.update(screen::demo::scene(i, dailyGoalSeconds(), screenSettings().zones));
             lv_refr_now(disp);
             const std::string name = std::to_string(i) + "_" + screen::demo::sceneName(i) +
                                      (inHours ? "_hours" : "") + ".bmp";
@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     // The statistics page, as after a swipe.
     dash.setTodayInHours(false);
     for (int i = 0; i < screen::demo::kStatsSceneCount; ++i) {
-        screen::Model m = screen::demo::scene(0, dailyGoalSeconds());
+        screen::Model m = screen::demo::scene(0, dailyGoalSeconds(), screenSettings().zones);
         m.walking = false;
         m.hasStats = true;
         m.stats = screen::demo::statsScene(i, dailyGoalSeconds());

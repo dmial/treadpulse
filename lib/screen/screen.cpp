@@ -69,14 +69,24 @@ constexpr int32_t kRingOuter = 102, kRingWidth = 14;  // room for "of 120 min to
 // Inside the ring: today's minutes, the goal under them, today's steps last.
 constexpr int32_t kTodayBaseline = 252, kTodayCaptionBaseline = 274, kTodayStepsBaseline = 298;
 
-// Zone scale under the pulse
-constexpr int32_t kScaleY = 128, kSegW = 32, kSegGap = 2, kSegH = 8;
-constexpr int32_t kScaleW = pulse::kZoneCount * kSegW + (pulse::kZoneCount - 1) * kSegGap;
+// The walk's time in zones 2 to 5, a row under the top numbers as wide as the
+// chart below: each time in its zone's color with a line under it, as on the
+// statistics page. The current zone is bright, the others dim, with the marker
+// on the current zone's line placed by how far into the zone the pulse is.
+constexpr int32_t kZoneTimesX = 320, kZoneTimeColW = 112, kZoneTimeLineW = 96;
+constexpr int32_t kZoneTimesBaseline = 148, kZoneTimeLineY = 156, kZoneTimeLineH = 4;
+constexpr int32_t kZoneMarkerW = 4, kZoneMarkerH = 14;
+
+// A zone's color dimmed, on both pages: "not the zone the pulse is in now" on
+// the dashboard, "no minutes" on the statistics page. Gray stays "no signal".
+// The numbers are dimmed less than the lines, so they stay readable.
+constexpr lv_opa_t kDimLineOpa = LV_OPA_40;
+constexpr int kDimTextPct = 60;
 
 // Pulse chart of the walk
-constexpr int32_t kChartX = 320, kChartTop = 150, kChartBottom = 366;
+constexpr int32_t kChartX = 320, kChartTop = 170, kChartBottom = 366;
 constexpr int32_t kChartPad = 6;  // room for round line caps at the edges
-constexpr int32_t kPulseTop = 156, kPulseBottom = 360;
+constexpr int32_t kPulseTop = 176, kPulseBottom = 360;
 constexpr float kPulseLo = 90.0f, kPulseHi = 180.0f;  // bpm at the bottom and top (HRmax 181)
 // Just under the lowest the pulse line goes (kPulseBottom), so the minutes
 // read as the chart's and not the day strip's.
@@ -129,6 +139,16 @@ int32_t stripX(int sec, int startSec, int endSec) {
 // ---------------------------------------------------------------- helpers
 
 lv_color_t rgb(uint32_t c) { return lv_color_hex(c); }
+
+// A color `kDimTextPct` % of the way from the background to `c`.
+uint32_t dimmed(uint32_t c) {
+    uint32_t out = 0;
+    for (int shift : {16, 8, 0}) {
+        const int from = (kBg >> shift) & 0xff, to = (c >> shift) & 0xff;
+        out |= static_cast<uint32_t>(from + (to - from) * kDimTextPct / 100) << shift;
+    }
+    return out;
+}
 
 enum class Align { Left, Center, Right };
 
@@ -507,15 +527,16 @@ void Dashboard::buildNumbers() {
     pulseCaption_ = makeLabel(dash_, &geo_16, kMuted, Align::Left, kPulseX + 2, kCaptionBaseline,
                               kWidth - kPulseX - 4);
 
-    for (int i = 0; i < pulse::kZoneCount; ++i) {
-        lv_obj_t* seg = makeBox(dash_);
-        lv_obj_set_pos(seg, kPulseX + i * (kSegW + kSegGap), kScaleY);
-        lv_obj_set_size(seg, kSegW, kSegH);
-        lv_obj_set_style_radius(seg, 2, 0);
-        zoneSegments_[i] = seg;
+    for (int i = 0; i < 4; ++i) {
+        const int32_t x = kZoneTimesX + i * kZoneTimeColW;
+        zoneTimes_[i] = makeLabel(dash_, &geo_26, kOffDim, Align::Left, x, kZoneTimesBaseline, kZoneTimeColW);
+        zoneTimeLines_[i] = makeBox(dash_);
+        lv_obj_set_pos(zoneTimeLines_[i], x, kZoneTimeLineY);
+        lv_obj_set_size(zoneTimeLines_[i], kZoneTimeLineW, kZoneTimeLineH);
+        lv_obj_set_style_radius(zoneTimeLines_[i], kZoneTimeLineH / 2, 0);
     }
     zoneMarker_ = makeBox(dash_);
-    lv_obj_set_size(zoneMarker_, 4, kSegH + 10);
+    lv_obj_set_size(zoneMarker_, kZoneMarkerW, kZoneMarkerH);
     lv_obj_set_style_radius(zoneMarker_, 2, 0);
     lv_obj_set_style_bg_color(zoneMarker_, rgb(kWhite), 0);
     lv_obj_set_style_bg_opa(zoneMarker_, LV_OPA_COVER, 0);
@@ -825,12 +846,11 @@ void Dashboard::updateNumbers(const Model& m) {
     setText(incline_, oneDecimal(m.inclinePct));
     setTextColor(incline_, up ? kIncline : kOff);
 
+    updateZoneTimes(m);
     if (!m.pulseUp || m.bpm <= 0) {
         setText(pulse_, "---");
         setTextColor(pulse_, kOff);
         setText(pulseCaption_, "bpm");
-        for (lv_obj_t* seg : zoneSegments_) setBg(seg, kOff, LV_OPA_60);
-        setVisible(zoneMarker_, false);
         return;
     }
 
@@ -844,13 +864,43 @@ void Dashboard::updateNumbers(const Model& m) {
     snprintf(caption, sizeof(caption), "bpm · %d %s threshold", h.distance,
              h.kind == pulse::Hint::Kind::AboveInterval ? "above" : "below");
     setText(pulseCaption_, caption);
+}
 
-    for (int i = 0; i < pulse::kZoneCount; ++i) {
-        setBg(zoneSegments_[i], kZoneColor[i + 1], i + 1 == zone ? LV_OPA_COVER : LV_OPA_50);
+// The walk's time in zones 2 to 5 (zone 1 left out: easy walking says little).
+// One look, one meaning: gray is "no signal", dim is "not the zone the pulse is
+// in now", and a zone not reached shows only as 0:00. The times count with the
+// treadmill and the strap both on, so they are gray without either; the lines
+// and the marker show the pulse and go gray only without the strap. In zone 1
+// every zone is dim and there is no marker.
+void Dashboard::updateZoneTimes(const Model& m) {
+    const bool pulseUp = m.pulseUp && m.bpm > 0;
+    const bool counting = pulseUp && m.treadmillUp;
+    const float bpm = static_cast<float>(m.bpm);
+    const int zone = pulseUp ? pulse::zoneOf(s_.zones, bpm) : 0;
+
+    for (int i = 0; i < 4; ++i) {
+        const int z = i + 2;
+        const bool now = z == zone;
+        setText(zoneTimes_[i], walkClock(m.walkZoneSeconds[z]));
+        setTextColor(zoneTimes_[i], !counting ? kOff : now ? kZoneColor[z] : dimmed(kZoneColor[z]));
+        if (!pulseUp) {
+            setBg(zoneTimeLines_[i], kOff, LV_OPA_COVER);
+        } else {
+            setBg(zoneTimeLines_[i], kZoneColor[z], now ? LV_OPA_COVER : kDimLineOpa);
+        }
     }
-    const float pos = pulse::scalePosition(s_.zones, static_cast<float>(m.bpm));
-    lv_obj_set_pos(zoneMarker_, kPulseX + static_cast<int32_t>(std::lround(pos * kScaleW)) - 2,
-                   kScaleY - 5);
+
+    if (zone < 2) {
+        setVisible(zoneMarker_, false);
+        return;
+    }
+    // How far into its zone the pulse is, 0..1, from its place on a scale of
+    // five equal zones.
+    const float into = std::min(
+        1.0f, std::max(0.0f, pulse::scalePosition(s_.zones, bpm) * pulse::kZoneCount - (zone - 1)));
+    const int32_t x = kZoneTimesX + (zone - 2) * kZoneTimeColW +
+                      static_cast<int32_t>(std::lround(into * kZoneTimeLineW)) - kZoneMarkerW / 2;
+    lv_obj_set_pos(zoneMarker_, x, kZoneTimeLineY + kZoneTimeLineH / 2 - kZoneMarkerH / 2);
     setVisible(zoneMarker_, true);
 }
 
@@ -1148,19 +1198,20 @@ void Dashboard::layoutStats() {
 
     // Minutes a day in zones 2..5 on average, over the same days as the average
     // day, so they compare with it; in their colors, a zone under half a
-    // minute a day in gray.
+    // minute a day dim (as the zones the pulse is not in on the dashboard: gray
+    // means "no signal" there).
     for (int i = 0; i < 4; ++i) {
         const int z = i + 2;
         const uint32_t minutes = minutesADay(w.zoneSeconds[z], w.fullDays);
         const bool any = minutes > 0;
         const std::string number = std::to_string(minutes);
         setText(zoneMinutes_[i], number);
-        setTextColor(zoneMinutes_[i], any ? kZoneColor[z] : kOffDim);
+        setTextColor(zoneMinutes_[i], any ? kZoneColor[z] : dimmed(kZoneColor[z]));
         place(zoneUnits_[i], Align::Left, kZonesX + i * kZoneColW + textWidth(number.c_str(), &geo_26) + 4,
               kZoneMinutesBaseline, kZoneColW);
-        setTextColor(zoneUnits_[i], any ? kMuted : kOffDim);
-        setBg(zoneLines_[i], any ? kZoneColor[z] : kOffDim, LV_OPA_COVER);
-        setTextColor(zoneNames_[i], any ? kLineLabel : kOffDim);
+        setTextColor(zoneUnits_[i], kMuted);
+        setBg(zoneLines_[i], kZoneColor[z], any ? LV_OPA_COVER : kDimLineOpa);
+        setTextColor(zoneNames_[i], kLineLabel);
     }
 
     uint32_t longest = 0;

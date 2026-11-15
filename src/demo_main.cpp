@@ -36,7 +36,7 @@ void loop() {
         nextMs = millis() + kSceneMs;
         if (scene < screen::demo::kSceneCount) {
             const uint32_t start = millis();
-            dash->update(screen::demo::scene(scene, dailyGoalSeconds()));
+            dash->update(screen::demo::scene(scene, dailyGoalSeconds(), screenSettings().zones));
             display::refreshNow();
             Serial.printf("[demo] %d %s, drawn in %lu ms\n", scene, screen::demo::sceneName(scene),
                           static_cast<unsigned long>(millis() - start));

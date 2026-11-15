@@ -92,6 +92,7 @@ screen::NetProblem netProblem = screen::NetProblem::None;
 uint32_t lastStopCount = 0;  // the treadmill's stop reports already passed on
 uint32_t keptWalkSeconds = 0;  // the last kept walk's time, shown between walks
 uint32_t keptWalkSteps = 0;
+std::array<uint32_t, pulse::kZoneCount + 1> keptWalkZones{};  // and its seconds by pulse zone
 // Kept walks that ended before the clock was set, waiting for a date.
 std::vector<walk::Summary> undatedHistory;
 // The history's last weeks for the statistics page, and when it began.
@@ -356,6 +357,7 @@ void tick(uint32_t now) {
             dayLog.prune(epoch);
             keptWalkSeconds = sum.walkSeconds();
             keptWalkSteps = sum.steps;
+            keptWalkZones = sum.zoneSeconds;
             netNow = true;
             netDueMs = now + kNetAfterWalkMs;
         } else {
@@ -388,6 +390,7 @@ void tick(uint32_t now) {
     m.inclinePct = sample.inclinePct;
     m.walkSeconds = tracker.inSession() ? tracker.walkSeconds() : keptWalkSeconds;
     m.walkSteps = tracker.inSession() ? tracker.steps() : keptWalkSteps;
+    m.walkZoneSeconds = tracker.inSession() ? tracker.zoneSeconds() : keptWalkZones;
     m.walking = tracker.inSession();
     m.pulseUp = heartRateUp;
     m.bpm = hr.bpm;

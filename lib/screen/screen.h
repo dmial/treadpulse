@@ -1,8 +1,9 @@
 // The 800x480 dashboard, drawn with LVGL: the current walk's timer and steps
 // above today's ring toward the daily goal (with today's steps inside), speed,
-// incline, the pulse with its zone scale and its chart over the walk, and the
-// day strip; plus a plain message screen for boot and uploads. A tap on the
-// ring switches today's count between minutes and hours and minutes.
+// incline, the pulse, the walk's time in pulse zones 2 to 5 (the current zone
+// marked), the pulse chart over the walk, and the day strip; plus a plain
+// message screen for boot and uploads. A tap on the ring switches today's count
+// between minutes and hours and minutes.
 //
 // A second page, reached by a sideways swipe, shows the last two weeks: each
 // day's walking split by pulse zone, and totals over them. The dashboard comes
@@ -15,6 +16,7 @@
 
 #include <lvgl.h>
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -58,6 +60,9 @@ struct Model {
     float inclinePct = 0.0f;
     uint32_t walkSeconds = 0;  // the current walk, or the last one
     uint32_t walkSteps = 0;    // of the same walk
+    // The same walk's seconds by heart rate zone: [0] below zone 1, [1..5] the
+    // zones. Counted only with the treadmill and the strap both on.
+    std::array<uint32_t, pulse::kZoneCount + 1> walkZoneSeconds{};
     bool walking = false;      // a walk is on; otherwise the walk shown is the last one
     bool beltMoving = false;   // the belt moves: the dashboard comes back from the statistics
 
@@ -137,6 +142,7 @@ class Dashboard {
     void drawToday();
     void placeTodayHours(uint32_t minutes, uint32_t digitColor, uint32_t unitColor);
     void updateNumbers(const Model& m);
+    void updateZoneTimes(const Model& m);
     void updateChart(const Model& m);
     void updateAxis(uint32_t spanS);
     void updateLevel(const std::vector<float>& bpm, int end, float secondsPerColumn, bool pulseUp);
@@ -181,7 +187,10 @@ class Dashboard {
     lv_obj_t* incline_ = nullptr;
     lv_obj_t* pulse_ = nullptr;
     lv_obj_t* pulseCaption_ = nullptr;
-    lv_obj_t* zoneSegments_[pulse::kZoneCount] = {};
+    // The walk's time in zones 2..5, a line in the zone's color under each; the
+    // marker on the current zone's line
+    lv_obj_t* zoneTimes_[4] = {};
+    lv_obj_t* zoneTimeLines_[4] = {};
     lv_obj_t* zoneMarker_ = nullptr;
 
     lv_obj_t* chart_ = nullptr;

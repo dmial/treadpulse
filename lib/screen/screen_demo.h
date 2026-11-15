@@ -12,8 +12,9 @@ constexpr int kSceneCount = 9;
 // Short file-friendly name of a scene, e.g. "walk".
 const char* sceneName(int i);
 
-// Scene `i` (0..kSceneCount-1) for a daily goal of `goalSeconds`.
-Model scene(int i, uint32_t goalSeconds);
+// Scene `i` (0..kSceneCount-1) for a daily goal of `goalSeconds`, the walk's
+// time in pulse zones counted by `zones`.
+Model scene(int i, uint32_t goalSeconds, const pulse::Borders& zones);
 
 // The statistics page on 2026-11-12, local days as the process time zone has
 // them: 0 = the history began yesterday (two days of walks), 1 = two full
