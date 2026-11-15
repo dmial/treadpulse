@@ -1014,7 +1014,10 @@ void Dashboard::updateChart(const Model& m) {
 
 // The level over the walk's last minutes, from the same smoothed pulse the line
 // is drawn with. Only with the strap on, and once at least 40 % of that window
-// had a pulse: not from the first few seconds.
+// had a pulse: not from the first few seconds. Not while its average is off the
+// chart's scale either: pinned to the edge it would lie about where the pulse
+// was, and its number by the line's end reads as the pulse now. It comes back
+// once the average is on the scale; a corridor only partly off is cut by the edge.
 void Dashboard::updateLevel(const std::vector<float>& bpm, int end, float secondsPerColumn,
                             bool pulseUp) {
     const float windowColumns = static_cast<float>(s_.levelWindowS) / secondsPerColumn;
@@ -1022,6 +1025,7 @@ void Dashboard::updateLevel(const std::vector<float>& bpm, int end, float second
     levelFirst_ = std::max(0, end - std::max(1, static_cast<int>(std::lround(windowColumns))));
     const size_t minCount = std::max<size_t>(1, static_cast<size_t>(std::ceil(0.4f * windowColumns)));
     level_ = pulseUp ? pulse::levelOf(bpm, levelFirst_, end, minCount) : pulse::Level{};
+    if (level_.valid && (level_.mean < kPulseLo || level_.mean > pulseHi())) level_ = pulse::Level{};
     if (!level_.valid) {
         setVisible(levelValue_, false);
         setVisible(levelCaption_, false);
