@@ -87,7 +87,10 @@ constexpr int kDimTextPct = 60;
 constexpr int32_t kChartX = 320, kChartTop = 170, kChartBottom = 366;
 constexpr int32_t kChartPad = 6;  // room for round line caps at the edges
 constexpr int32_t kPulseTop = 176, kPulseBottom = 360;
-constexpr float kPulseLo = 90.0f, kPulseHi = 180.0f;  // bpm at the bottom and top (HRmax 181)
+// bpm at the bottom; the top is zone 5's upper border, see Dashboard::pulseHi().
+constexpr float kPulseLo = 90.0f;
+// The pulse off the scale: dots along the chart's edge, this far apart.
+constexpr int32_t kDotR = 1, kDotPitch = 7;
 // Just under the lowest the pulse line goes (kPulseBottom), so the minutes
 // read as the chart's and not the day strip's.
 constexpr int32_t kAxisBaseline = 377;
@@ -904,9 +907,16 @@ void Dashboard::updateZoneTimes(const Model& m) {
     setVisible(zoneMarker_, true);
 }
 
+// The chart's top: zone 5's upper border from the settings, rounded up to a
+// whole bpm (180.8 -> 181).
+float Dashboard::pulseHi() const {
+    return std::max(std::ceil(s_.zones[pulse::kZoneCount]), kPulseLo + 1.0f);
+}
+
 float Dashboard::pulseY(float bpm) const {
-    bpm = std::min(std::max(bpm, kPulseLo), kPulseHi);
-    return kPulseBottom - (bpm - kPulseLo) * (kPulseBottom - kPulseTop) / (kPulseHi - kPulseLo);
+    const float hi = pulseHi();
+    bpm = std::min(std::max(bpm, kPulseLo), hi);
+    return kPulseBottom - (bpm - kPulseLo) * (kPulseBottom - kPulseTop) / (hi - kPulseLo);
 }
 
 void Dashboard::updateChart(const Model& m) {
@@ -943,6 +953,12 @@ void Dashboard::updateChart(const Model& m) {
     }
 
     // A line per stretch of one zone, split exactly where it crosses a border.
+    // Where the pulse is below or above the chart's scale it is not pinned to
+    // the edge as if it were a flat line there: it turns into dots of the
+    // line's own color along that edge ("there is a pulse, off the scale"),
+    // split exactly where it leaves the scale. No pulse stays a gap.
+    const float hi = pulseHi();
+    auto outside = [&](float b) { return b < kPulseLo || b > hi; };
     bool newLine = true;
     int prev = -1;
     for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
@@ -955,21 +971,26 @@ void Dashboard::updateChart(const Model& m) {
             const float x0 = static_cast<float>(kChartX + prev), x1 = static_cast<float>(kChartX + i);
             const float b0 = bpm[prev], b1 = bpm[i];
             std::vector<float> cuts;
-            for (float border : s_.zones) {
+            auto cutAt = [&](float border) {
                 if ((border > b0 && border < b1) || (border < b0 && border > b1)) {
                     cuts.push_back((border - b0) / (b1 - b0));
                 }
-            }
+            };
+            for (float border : s_.zones) cutAt(border);
+            cutAt(kPulseLo);
+            cutAt(hi);
             std::sort(cuts.begin(), cuts.end());
             cuts.push_back(1.0f);
             float t0 = 0.0f;
             for (float t1 : cuts) {
                 const float bm = b0 + (b1 - b0) * (t0 + t1) / 2;
+                const bool off = outside(bm);
                 const uint32_t color = colorOf(bm);
                 const lv_point_precise_t pa = point(x0 + (x1 - x0) * t0, pulseY(b0 + (b1 - b0) * t0));
                 const lv_point_precise_t pb = point(x0 + (x1 - x0) * t1, pulseY(b0 + (b1 - b0) * t1));
-                if (newLine || pulseRuns_.empty() || pulseRuns_.back().color != color) {
-                    pulseRuns_.push_back(Run{color, {pa}});
+                if (newLine || pulseRuns_.empty() || pulseRuns_.back().color != color ||
+                    pulseRuns_.back().outside != off) {
+                    pulseRuns_.push_back(Run{color, {pa}, off});
                     newLine = false;
                 }
                 pulseRuns_.back().points.push_back(pb);
@@ -1325,7 +1346,7 @@ void Dashboard::drawChart(lv_layer_t* layer) const {
     // Zone bands
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
         const float lo = std::max(s_.zones[z - 1], kPulseLo);
-        const float hi = std::min(s_.zones[z], kPulseHi);
+        const float hi = std::min(s_.zones[z], pulseHi());
         if (hi <= lo) continue;
         drawRect(layer, x1, static_cast<int32_t>(std::lround(pulseY(hi))), x2,
                  static_cast<int32_t>(std::lround(pulseY(lo))) - 1,
@@ -1358,7 +1379,24 @@ void Dashboard::drawChart(lv_layer_t* layer) const {
     }
 
     // Pulse
-    for (const Run& r : pulseRuns_) drawPolyline(layer, r.points, r.color, 3);
+    for (const Run& r : pulseRuns_) {
+        if (!r.outside) {
+            drawPolyline(layer, r.points, r.color, 3);
+            continue;
+        }
+        // Off the scale: all its points lie on the edge. Dots on a fixed grid
+        // (they stay put as the line grows), at least one even for a short stretch.
+        const int32_t a = static_cast<int32_t>(std::lround(r.points.front().x));
+        const int32_t b = static_cast<int32_t>(std::lround(r.points.back().x));
+        const int32_t y = static_cast<int32_t>(std::lround(r.points.front().y));
+        auto dot = [&](int32_t x) {
+            drawRect(layer, x - kDotR, y - kDotR, x + kDotR, y + kDotR, r.color, LV_OPA_COVER,
+                     LV_RADIUS_CIRCLE);
+        };
+        int32_t x = (a + kDotPitch - 1) / kDotPitch * kDotPitch;
+        if (x > b) dot((a + b) / 2);
+        for (; x <= b; x += kDotPitch) dot(x);
+    }
     if (level_.valid) {
         const int32_t y = static_cast<int32_t>(std::lround(pulseY(level_.mean)));
         drawRect(layer, levelX, y - 1, levelNumberX(levelEnd_) - 3, y, kWhite);

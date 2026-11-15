@@ -52,6 +52,12 @@ const std::vector<Key> kSteady = {{0, 92},   {2, 100},  {5, 112},  {8, 120},
                                   {12, 124}, {17, 127}, {19, 133}, {21, 139},
                                   {22, 141}, {24, 137}, {27, 133}, {32.3f, 131}};
 
+// A calm start under the chart's 90 bpm floor, wavering across it a while
+// before the pulse climbs into zone 2.
+const std::vector<Key> kLowStart = {{0, 76},   {2, 81},   {4, 87},   {6, 90},
+                                    {8, 98},   {12, 116}, {17, 126}, {22, 131},
+                                    {27, 132}, {32.3f, 130}};
+
 std::vector<Key> endingAt(float bpm) {
     std::vector<Key> keys(kSteady.begin(), kSteady.end() - 1);
     keys.push_back({29.5f, (133 + bpm) / 2});
@@ -71,7 +77,7 @@ const char* sceneName(int i) {
     static const char* const kNames[kSceneCount] = {
         "walk",     "over_ceiling", "interval",   "no_treadmill",
         "no_strap", "goal_met",     "fresh_walk", "pending_upload",
-        "upload_failed",
+        "upload_failed", "low_start",
     };
     return i >= 0 && i < kSceneCount ? kNames[i] : "?";
 }
@@ -146,6 +152,10 @@ Model scene(int i, uint32_t goalSeconds, const pulse::Borders& zones) {
             m.nextTry = "18:15";
             m.clock = "18:05";
             m.today.nowSec = 18 * 3600 + 5 * 60;
+            break;
+        case 9:  // the walk began with the pulse under the chart's scale
+            keys = kLowStart;
+            m.bpm = 130;
             break;
         default:
             break;

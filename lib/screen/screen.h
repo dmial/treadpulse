@@ -128,6 +128,7 @@ class Dashboard {
     struct Run {  // a stretch of the pulse line in one color
         uint32_t color = 0;
         std::vector<lv_point_precise_t> points;
+        bool outside = false;  // the pulse off the scale: dots along the chart's edge
     };
 
     void buildStatus();
@@ -163,6 +164,7 @@ class Dashboard {
     void drawChart(lv_layer_t* layer) const;
     void drawDay(lv_layer_t* layer) const;
 
+    float pulseHi() const;  // bpm at the chart's top
     float pulseY(float bpm) const;
 
     Settings s_;
