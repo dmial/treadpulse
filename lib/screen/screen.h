@@ -1,7 +1,7 @@
 // The 800x480 dashboard, drawn with LVGL: the current walk's timer and steps
 // above today's ring toward the daily goal (with today's steps inside), speed,
-// incline, the pulse, the walk's time in pulse zones 2 to 5 (the current zone
-// marked), the pulse chart over the walk, and the day strip; plus a plain
+// incline, the pulse, the pulse chart over the walk with the walk's time in
+// each pulse zone beside the zone's band, and the day strip; plus a plain
 // message screen for boot and uploads. A tap on the ring switches today's count
 // between minutes and hours and minutes.
 //
@@ -130,6 +130,10 @@ class Dashboard {
         std::vector<lv_point_precise_t> points;
         bool outside = false;  // the pulse off the scale: dots along the chart's edge
     };
+    struct ChartLine {  // a dashed line across the chart
+        float bpm = 0.0f;
+        bool threshold = false;  // one of the two to watch, brighter; otherwise a zone border
+    };
 
     void buildStatus();
     void buildRing();
@@ -143,6 +147,7 @@ class Dashboard {
     void drawToday();
     void placeTodayHours(uint32_t minutes, uint32_t digitColor, uint32_t unitColor);
     void updateNumbers(const Model& m);
+    int zoneNow(const Model& m) const;
     void updateZoneTimes(const Model& m);
     void updateChart(const Model& m);
     void updateAxis(uint32_t spanS);
@@ -189,15 +194,13 @@ class Dashboard {
     lv_obj_t* incline_ = nullptr;
     lv_obj_t* pulse_ = nullptr;
     lv_obj_t* pulseCaption_ = nullptr;
-    // The walk's time in zones 2..5, a line in the zone's color under each; the
-    // marker on the current zone's line
-    lv_obj_t* zoneTimes_[4] = {};
-    lv_obj_t* zoneTimeLines_[4] = {};
-    lv_obj_t* zoneMarker_ = nullptr;
+    // The walk's time in zones 1..5, left of the chart beside each zone's band
+    lv_obj_t* zoneTimes_[pulse::kZoneCount] = {};
 
     lv_obj_t* chart_ = nullptr;
     std::vector<lv_obj_t*> axis_;
-    std::vector<lv_area_t> chartMarks_;  // the two lines and their labels: the level caption keeps off them
+    std::vector<ChartLine> chartLines_;
+    std::vector<lv_area_t> chartMarks_;  // the lines and their labels: the level caption keeps off them
     lv_obj_t* levelValue_ = nullptr;
     lv_obj_t* levelCaption_ = nullptr;
 
@@ -250,6 +253,7 @@ class Dashboard {
     std::vector<walk::Column> chartColumns_;
     uint32_t chartSpanS_ = 0;
     bool chartPulseUp_ = false;
+    int chartZone_ = 0;  // its band drawn stronger: the zone the pulse is in now, 0 without one
     std::vector<Run> pulseRuns_;
     lv_point_precise_t pulseEnd_ = {0, 0};
     uint32_t pulseEndColor_ = 0;
