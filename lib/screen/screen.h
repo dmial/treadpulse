@@ -195,7 +195,8 @@ class Dashboard {
     lv_obj_t* incline_ = nullptr;
     lv_obj_t* pulse_ = nullptr;
     lv_obj_t* pulseCaption_ = nullptr;
-    // The walk's time in zones 1..5, left of the chart beside each zone's band
+    // The walk's time in zones 1..5, left of the chart beside each zone's band;
+    // zone 1 always, the others once reached
     lv_obj_t* zoneTimes_[pulse::kZoneCount] = {};
 
     lv_obj_t* chart_ = nullptr;

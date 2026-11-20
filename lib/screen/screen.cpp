@@ -87,7 +87,7 @@ constexpr lv_opa_t kThresholdOpa = LV_OPA_50, kBorderOpa = LV_OPA_20;
 // The walk's time in each zone, left of the chart in the middle of the zone's
 // band, right-aligned: with equal-width digits the colons line up.
 constexpr int32_t kZoneTimesRight = kChartX - 10, kZoneTimeW = 100;
-constexpr int32_t kZoneDigitH = 18;  // geo_26 digits: a time is centred on its band
+constexpr int32_t kZoneDigitH = 13;  // geo_18 digits: a time is centred on its band
 // The chart spans the zones and nothing else: zone 1's lower border at the
 // bottom, zone 5's upper border at the top, see Dashboard::pulseLo()/pulseHi().
 // The pulse off the scale: dots along the chart's edge, this far apart.
@@ -590,7 +590,7 @@ void Dashboard::buildChart() {
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
         const float lo = s_.zones[z - 1], hi = s_.zones[z];
         const int32_t mid = static_cast<int32_t>(std::lround((pulseY(lo) + pulseY(hi)) / 2));
-        zoneTimes_[z - 1] = makeLabel(dash_, &geo_26, kOff, Align::Right, kZoneTimesRight,
+        zoneTimes_[z - 1] = makeLabel(dash_, &geo_18, kOff, Align::Right, kZoneTimesRight,
                                       mid + kZoneDigitH / 2, kZoneTimeW);
     }
     for (int i = 0; i < 6; ++i) {
@@ -902,16 +902,19 @@ int Dashboard::zoneNow(const Model& m) const {
 }
 
 // The walk's time in each zone beside its band on the chart; time at rest
-// (under zone 1) is not shown, as the chart leaves rest out. One look, one
-// meaning: gray is "no signal", dim is "not the zone the pulse is in now" (all
-// of them at rest), and a zone not reached shows only as 0:00. The times count
-// with the treadmill and the strap both on, so they are gray without either.
+// (under zone 1) is not shown, as the chart leaves rest out. Zone 1 always
+// shows, as 0:00 until reached, so the gutter is never empty; zones 2..5 show
+// once the walk has reached them. One look, one meaning: gray is "no signal",
+// dim is "not the zone the pulse is in now" (all of them at rest). The times
+// count with the treadmill and the strap both on, so they are gray without either.
 void Dashboard::updateZoneTimes(const Model& m) {
     const bool counting = m.pulseUp && m.bpm > 0 && m.treadmillUp;
     const int zone = zoneNow(m);
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
-        setText(zoneTimes_[z - 1], minutesSeconds(m.walkZoneSeconds[z]));
-        setTextColor(zoneTimes_[z - 1], !counting ? kOff : z == zone ? kZoneColor[z] : dimmed(kZoneColor[z]));
+        lv_obj_t* label = zoneTimes_[z - 1];
+        setVisible(label, z == 1 || m.walkZoneSeconds[z] > 0 || (counting && z == zone));
+        setText(label, minutesSeconds(m.walkZoneSeconds[z]));
+        setTextColor(label, !counting ? kOff : z == zone ? kZoneColor[z] : dimmed(kZoneColor[z]));
     }
 }
 
