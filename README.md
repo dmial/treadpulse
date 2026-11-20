@@ -13,7 +13,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 - **This walk, in big digits.** Walking time runs only while the belt moves, with the steps under it ([estimated from the speed](docs/how-it-works.md#steps)). Speed and incline next to it.
 - **Daily goal ring.** Minutes walked today out of your goal, and today's steps. Past the goal, a second, brighter lap. Tap the ring to count in hours and minutes ("1h 23m") instead.
 - **Heart rate zones.** The pulse is colored by zone, with how far you are from the next threshold.
-- **Pulse chart of the walk** over the five zones as bands, the zone you are in now brighter, with your two thresholds named and the other zone borders dashed. Beside each band, this walk's time in that zone. Plus where your pulse sat over the last 5 minutes.
+- **Pulse chart of the walk** over the five zones as bands, the zone you are in now brighter, with your two thresholds named and the other zone borders dashed. The chart spans zones 1 to 5 only: a pulse under or over them runs as dots along the edge. Beside each band, this walk's time in that zone. Plus where your pulse sat over the last 5 minutes.
 - **Beeps** when the pulse crosses a threshold, and when the treadmill link drops mid-walk.
 - **Day strip:** when you walked today, with each walk's minutes over it.
 - **The last two weeks:** swipe sideways for a bar per day, split by pulse zone (striped where you walked without the strap), with weeks set apart, your average day in minutes and steps, the days on goal and in a row, and the average day's minutes in zones 2 to 5. The history stays on the board, so this works without the cloud; the dashboard comes back when the belt starts.
