@@ -12,7 +12,8 @@ namespace userconfig {
 constexpr uint32_t kDailyGoalMinutes = 120;
 
 // Heart rate zone borders in bpm, ascending: zone N spans borders[N-1]..borders[N].
-// Below the first border is rest, not a zone. These values are an example: put in
+// Below the first border is rest, not a zone, and the pulse chart starts at that
+// border; its top is the last one. These values are an example: put in
 // your own. Borders from a lab test (CPET) are best; a rough start is
 // 50 / 60 / 70 / 80 / 90 / 100 % of your maximum heart rate.
 constexpr float kHeartRateZoneBorders[6] = {95.0f, 115.0f, 135.0f, 150.0f, 165.0f, 185.0f};

@@ -88,8 +88,8 @@ constexpr lv_opa_t kThresholdOpa = LV_OPA_50, kBorderOpa = LV_OPA_20;
 // band, right-aligned: with equal-width digits the colons line up.
 constexpr int32_t kZoneTimesRight = kChartX - 10, kZoneTimeW = 100;
 constexpr int32_t kZoneDigitH = 18;  // geo_26 digits: a time is centred on its band
-// bpm at the bottom; the top is zone 5's upper border, see Dashboard::pulseHi().
-constexpr float kPulseLo = 90.0f;
+// The chart spans the zones and nothing else: zone 1's lower border at the
+// bottom, zone 5's upper border at the top, see Dashboard::pulseLo()/pulseHi().
 // The pulse off the scale: dots along the chart's edge, this far apart.
 constexpr int32_t kDotR = 1, kDotPitch = 7;
 // Just under the lowest the pulse line goes (kPulseBottom), so the minutes
@@ -559,15 +559,20 @@ void Dashboard::buildChart() {
     // The borders between the zones as dashes, so the five zones read at a
     // glance, each labelled above its dash with its bpm. The two thresholds to
     // watch stand out, named: "138 · VT1"; a border that is no threshold has its
-    // number only. The border under zone 1 is left out: below it is rest.
-    auto addLine = [&](float bpm, const char* name, bool threshold) {
+    // number only. Zone 1's lower border and zone 5's upper one are the chart's
+    // edges: rest under zone 1 is of no use here, so the chart leaves it out.
+    // The bottom edge still has its number, so the scale reads from where it
+    // starts; it needs no dash, the band's edge is the line.
+    auto addLine = [&](float bpm, const char* name, bool threshold, bool dashed = true) {
         std::string text = std::to_string(pulse::lastBpmUnder(bpm));
         if (name && *name) text += std::string(" · ") + name;
         const int32_t y = static_cast<int32_t>(pulseY(bpm));
         makeLabel(dash_, &geo_16, threshold ? kLineLabel : kMuted, Align::Left, kChartX + 6, y - 5,
                   kChartColumns - 12, text.c_str());
-        chartLines_.push_back({bpm, threshold});
-        chartMarks_.push_back({kChartX, y - 1, kChartX + kChartColumns, y + 1});
+        if (dashed) {
+            chartLines_.push_back({bpm, threshold});
+            chartMarks_.push_back({kChartX, y - 1, kChartX + kChartColumns, y + 1});
+        }
         chartMarks_.push_back({kChartX + 6, y - 5 - kCaptionCap - 1,
                                kChartX + 6 + textWidth(text.c_str(), &geo_16), y - 5 + 4});
     };
@@ -579,14 +584,14 @@ void Dashboard::buildChart() {
     for (int i = 1; i < pulse::kZoneCount; ++i) {
         if (!isThreshold(s_.zones[i])) addLine(s_.zones[i], "", false);
     }
+    addLine(s_.zones[0], "", false, false);
 
     // The walk's time in each zone, beside the middle of the zone's band.
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
-        const float lo = std::max(s_.zones[z - 1], kPulseLo), hi = std::min(s_.zones[z], pulseHi());
+        const float lo = s_.zones[z - 1], hi = s_.zones[z];
         const int32_t mid = static_cast<int32_t>(std::lround((pulseY(lo) + pulseY(hi)) / 2));
         zoneTimes_[z - 1] = makeLabel(dash_, &geo_26, kOff, Align::Right, kZoneTimesRight,
                                       mid + kZoneDigitH / 2, kZoneTimeW);
-        if (hi <= lo) setVisible(zoneTimes_[z - 1], false);  // the zone is off the chart
     }
     for (int i = 0; i < 6; ++i) {
         lv_obj_t* l = makeLabel(dash_, &geo_16, kMuted, Align::Left, kChartX, kAxisBaseline, 90);
@@ -890,24 +895,22 @@ void Dashboard::updateNumbers(const Model& m) {
     setText(pulseCaption_, caption);
 }
 
-// The zone the pulse is in now, 1..5 (rest below zone 1 joins zone 1, as on the
-// chart); 0 without a pulse.
+// The zone the pulse is in now: 0 at rest (below zone 1), 1..5; -1 without a pulse.
 int Dashboard::zoneNow(const Model& m) const {
-    if (!m.pulseUp || m.bpm <= 0) return 0;
-    return std::max(1, pulse::zoneOf(s_.zones, static_cast<float>(m.bpm)));
+    if (!m.pulseUp || m.bpm <= 0) return -1;
+    return pulse::zoneOf(s_.zones, static_cast<float>(m.bpm));
 }
 
-// The walk's time in each zone beside its band on the chart; zone 1 with the
-// rest below it, so before the first climb it is the warm-up and runs with the
-// walk's timer. One look, one meaning: gray is "no signal", dim is "not the zone
-// the pulse is in now", and a zone not reached shows only as 0:00. The times
-// count with the treadmill and the strap both on, so they are gray without either.
+// The walk's time in each zone beside its band on the chart; time at rest
+// (under zone 1) is not shown, as the chart leaves rest out. One look, one
+// meaning: gray is "no signal", dim is "not the zone the pulse is in now" (all
+// of them at rest), and a zone not reached shows only as 0:00. The times count
+// with the treadmill and the strap both on, so they are gray without either.
 void Dashboard::updateZoneTimes(const Model& m) {
     const bool counting = m.pulseUp && m.bpm > 0 && m.treadmillUp;
     const int zone = zoneNow(m);
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
-        const uint32_t s = m.walkZoneSeconds[z] + (z == 1 ? m.walkZoneSeconds[0] : 0);
-        setText(zoneTimes_[z - 1], minutesSeconds(s));
+        setText(zoneTimes_[z - 1], minutesSeconds(m.walkZoneSeconds[z]));
         setTextColor(zoneTimes_[z - 1], !counting ? kOff : z == zone ? kZoneColor[z] : dimmed(kZoneColor[z]));
     }
 }
@@ -915,13 +918,17 @@ void Dashboard::updateZoneTimes(const Model& m) {
 // The chart's top: zone 5's upper border from the settings, rounded up to a
 // whole bpm (180.8 -> 181).
 float Dashboard::pulseHi() const {
-    return std::max(std::ceil(s_.zones[pulse::kZoneCount]), kPulseLo + 1.0f);
+    return std::max(std::ceil(s_.zones[pulse::kZoneCount]), pulseLo() + 1.0f);
 }
 
+// The chart's bottom: zone 1's lower border from the settings, not rounded,
+// so a pulse on the chart is in a zone and one under it, at rest, runs as dots.
+float Dashboard::pulseLo() const { return s_.zones[0]; }
+
 float Dashboard::pulseY(float bpm) const {
-    const float hi = pulseHi();
-    bpm = std::min(std::max(bpm, kPulseLo), hi);
-    return kPulseBottom - (bpm - kPulseLo) * (kPulseBottom - kPulseTop) / (hi - kPulseLo);
+    const float lo = pulseLo(), hi = pulseHi();
+    bpm = std::min(std::max(bpm, lo), hi);
+    return kPulseBottom - (bpm - lo) * (kPulseBottom - kPulseTop) / (hi - lo);
 }
 
 void Dashboard::updateChart(const Model& m) {
@@ -969,7 +976,8 @@ void Dashboard::updateChart(const Model& m) {
     // line's own color along that edge ("there is a pulse, off the scale"),
     // split exactly where it leaves the scale. No pulse stays a gap.
     const float hi = pulseHi();
-    auto outside = [&](float b) { return b < kPulseLo || b > hi; };
+    const float lo = pulseLo();
+    auto outside = [&](float b) { return b < lo || b > hi; };
     bool newLine = true;
     int prev = -1;
     for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
@@ -988,9 +996,10 @@ void Dashboard::updateChart(const Model& m) {
                 }
             };
             for (float border : s_.zones) cutAt(border);
-            cutAt(kPulseLo);
+            cutAt(lo);  // zone 1's border again: the duplicate is dropped below
             cutAt(hi);
             std::sort(cuts.begin(), cuts.end());
+            cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
             cuts.push_back(1.0f);
             float t0 = 0.0f;
             for (float t1 : cuts) {
@@ -1036,7 +1045,7 @@ void Dashboard::updateLevel(const std::vector<float>& bpm, int end, float second
     levelFirst_ = std::max(0, end - std::max(1, static_cast<int>(std::lround(windowColumns))));
     const size_t minCount = std::max<size_t>(1, static_cast<size_t>(std::ceil(0.4f * windowColumns)));
     level_ = pulseUp ? pulse::levelOf(bpm, levelFirst_, end, minCount) : pulse::Level{};
-    if (level_.valid && (level_.mean < kPulseLo || level_.mean > pulseHi())) level_ = pulse::Level{};
+    if (level_.valid && (level_.mean < pulseLo() || level_.mean > pulseHi())) level_ = pulse::Level{};
     if (!level_.valid) {
         setVisible(levelValue_, false);
         setVisible(levelCaption_, false);
@@ -1360,9 +1369,7 @@ void Dashboard::drawChart(lv_layer_t* layer) const {
 
     // Zone bands, the one the pulse is in now stronger
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
-        const float lo = std::max(s_.zones[z - 1], kPulseLo);
-        const float hi = std::min(s_.zones[z], pulseHi());
-        if (hi <= lo) continue;
+        const float lo = s_.zones[z - 1], hi = std::min(s_.zones[z], pulseHi());
         const bool now = chartPulseUp_ && z == chartZone_;
         drawRect(layer, x1, static_cast<int32_t>(std::lround(pulseY(hi))), x2,
                  static_cast<int32_t>(std::lround(pulseY(lo))) - 1,

@@ -52,11 +52,17 @@ const std::vector<Key> kSteady = {{0, 92},   {2, 100},  {5, 112},  {8, 120},
                                   {12, 124}, {17, 127}, {19, 133}, {21, 139},
                                   {22, 141}, {24, 137}, {27, 133}, {32.3f, 131}};
 
-// A calm start under the chart's 90 bpm floor, wavering across it a while
-// before the pulse climbs into zone 2.
+// A calm start at rest, under the chart's floor (zone 1's lower border), before
+// the pulse climbs through zone 1 into zone 2.
 const std::vector<Key> kLowStart = {{0, 76},   {2, 81},   {4, 87},   {6, 90},
                                     {8, 98},   {12, 116}, {17, 126}, {22, 131},
                                     {27, 132}, {32.3f, 130}};
+
+// A slow, flat walk with the pulse in the 80s and 90s: mostly at rest, under
+// zone 1 and so under the chart, now and then into zone 1.
+const std::vector<Key> kAtRest = {{0, 82},  {3, 86},   {6, 92},  {9, 96},   {12, 100},
+                                  {15, 95}, {18, 88},  {21, 85}, {24, 93},  {27, 99},
+                                  {30, 94}, {32.3f, 93}};
 
 std::vector<Key> endingAt(float bpm) {
     std::vector<Key> keys(kSteady.begin(), kSteady.end() - 1);
@@ -77,7 +83,7 @@ const char* sceneName(int i) {
     static const char* const kNames[kSceneCount] = {
         "walk",     "over_ceiling", "interval",   "no_treadmill",
         "no_strap", "goal_met",     "fresh_walk", "pending_upload",
-        "upload_failed", "low_start",
+        "upload_failed", "low_start", "at_rest",
     };
     return i >= 0 && i < kSceneCount ? kNames[i] : "?";
 }
@@ -156,6 +162,12 @@ Model scene(int i, uint32_t goalSeconds, const pulse::Borders& zones) {
         case 9:  // the walk began with the pulse under the chart's scale
             keys = kLowStart;
             m.bpm = 130;
+            break;
+        case 10:  // the pulse at rest now, under zone 1
+            keys = kAtRest;
+            m.bpm = 93;
+            m.speedKmh = 3.0f;
+            m.inclinePct = 1.0f;
             break;
         default:
             break;

@@ -170,6 +170,7 @@ class Dashboard {
     void drawDay(lv_layer_t* layer) const;
 
     float pulseHi() const;  // bpm at the chart's top
+    float pulseLo() const;  // bpm at the chart's bottom
     float pulseY(float bpm) const;
 
     Settings s_;
@@ -253,7 +254,7 @@ class Dashboard {
     std::vector<walk::Column> chartColumns_;
     uint32_t chartSpanS_ = 0;
     bool chartPulseUp_ = false;
-    int chartZone_ = 0;  // its band drawn stronger: the zone the pulse is in now, 0 without one
+    int chartZone_ = -1;  // its band drawn stronger: the zone the pulse is in now (0 rest), -1 without one
     std::vector<Run> pulseRuns_;
     lv_point_precise_t pulseEnd_ = {0, 0};
     uint32_t pulseEndColor_ = 0;

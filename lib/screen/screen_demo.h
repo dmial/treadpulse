@@ -7,7 +7,7 @@
 namespace screen {
 namespace demo {
 
-constexpr int kSceneCount = 10;
+constexpr int kSceneCount = 11;
 
 // Short file-friendly name of a scene, e.g. "walk".
 const char* sceneName(int i);
