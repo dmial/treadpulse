@@ -101,4 +101,69 @@ std::vector<Column> History::columns(int count, uint32_t minSpanS) const {
     return cols;
 }
 
+// Little-endian: seconds per point, the pending readings (count, pulse sum,
+// pulse count, last point), the number of points, then the points.
+namespace {
+
+constexpr size_t kPointBytes = 6;
+constexpr size_t kHeaderBytes = 4 * 4 + kPointBytes + 4;
+
+void putU16(std::vector<uint8_t>& out, uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v));
+    out.push_back(static_cast<uint8_t>(v >> 8));
+}
+
+void putU32(std::vector<uint8_t>& out, uint32_t v) {
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<uint8_t>(v >> (8 * i)));
+}
+
+uint16_t getU16(const uint8_t* p) { return static_cast<uint16_t>(p[0] | p[1] << 8); }
+
+uint32_t getU32(const uint8_t* p) {
+    return static_cast<uint32_t>(p[0]) | static_cast<uint32_t>(p[1]) << 8 |
+           static_cast<uint32_t>(p[2]) << 16 | static_cast<uint32_t>(p[3]) << 24;
+}
+
+}  // namespace
+
+void History::appendBytes(std::vector<uint8_t>& out) const {
+    auto putPoint = [&](const Point& p) {
+        putU16(out, p.bpm);
+        putU16(out, p.speedCenti);
+        putU16(out, static_cast<uint16_t>(p.inclineDeci));
+    };
+    out.reserve(out.size() + kHeaderBytes + points_.size() * kPointBytes);
+    putU32(out, pointSeconds_);
+    putU32(out, pending_.count);
+    putU32(out, pending_.bpmSum);
+    putU32(out, pending_.bpmCount);
+    putPoint(pending_.last);
+    putU32(out, static_cast<uint32_t>(points_.size()));
+    for (const Point& p : points_) putPoint(p);
+}
+
+bool History::readBytes(const uint8_t* data, size_t len) {
+    clear();
+    if (!data || len < kHeaderBytes) return false;
+    auto getPoint = [](const uint8_t* p) {
+        Point pt;
+        pt.bpm = getU16(p);
+        pt.speedCenti = getU16(p + 2);
+        pt.inclineDeci = static_cast<int16_t>(getU16(p + 4));
+        return pt;
+    };
+    const uint32_t pointSeconds = getU32(data);
+    const uint32_t count = getU32(data + kHeaderBytes - 4);
+    if (pointSeconds == 0 || count > maxPoints_ || len != kHeaderBytes + count * kPointBytes) return false;
+
+    pending_.count = getU32(data + 4);
+    pending_.bpmSum = getU32(data + 8);
+    pending_.bpmCount = getU32(data + 12);
+    pending_.last = getPoint(data + 16);
+    pointSeconds_ = pointSeconds;
+    points_.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) points_.push_back(getPoint(data + kHeaderBytes + i * kPointBytes));
+    return true;
+}
+
 }  // namespace walk

@@ -107,6 +107,12 @@ class Storage {
     // Replaces the whole file, via a temporary one (e.g. after a merge).
     void writeHistory(const String& csv);
 
+    // The last kept walk as the screen shows it (walk/last_walk.h) in
+    // /last_walk.bin, so a restart brings it back. Replaced whole; empty when
+    // there is none.
+    void writeLastWalk(const std::vector<uint8_t>& bytes);
+    std::vector<uint8_t> readLastWalk();
+
    private:
     // A walk of this boot begun before the clock was set, as recorded live,
     // to be written again with its times (dateWalks()).

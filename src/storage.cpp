@@ -8,6 +8,7 @@
 
 #include "board_log.h"
 #include "clock_sync.h"
+#include "last_walk.h"
 #include "strap_file.h"
 #include "walk_settings.h"
 
@@ -22,6 +23,8 @@ constexpr const char* kDayLog = "/day.csv";
 constexpr const char* kDayLogTmp = "/day.tmp";
 constexpr const char* kHistory = "/history.csv";
 constexpr const char* kHistoryTmp = "/history.tmp";
+constexpr const char* kLastWalk = "/last_walk.bin";
+constexpr const char* kLastWalkTmp = "/last_walk.tmp";
 
 // Rows reach flash in batches: a power cut loses at most this much of the log.
 constexpr uint32_t kFlushIntervalMs = 10000;
@@ -263,10 +266,15 @@ bool Storage::recoverWalk(const String& walk) {
     }
 
     walk::WalkReplay replay(walkSettings());
+    walk::History chart;  // as the screen drew it, to show it as the last walk
     while (f.available()) {
         const String line = f.readStringUntil('\n');
         if (!f.available() && !lastLineComplete) break;
-        if (auto row = walk::parseSampleRow(line.c_str())) replay.add(*row);
+        if (auto row = walk::parseSampleRow(line.c_str())) {
+            replay.add(*row);
+            const walk::SampleRow& s = row->row;
+            chart.push(s.heartRateBpm.value_or(0), s.speedKmh, s.inclinePct);
+        }
     }
     f.close();
 
@@ -312,6 +320,12 @@ bool Storage::recoverWalk(const String& walk) {
     } else {
         boardlog::printf("[fs] walk %s has no date: not in the history\n", walk.c_str());
     }
+    chart.trimTo((sum.endMs - sum.startMs) / 1000 + 1);
+    walk::LastWalk last;
+    last.walkSeconds = sum.walkSeconds();
+    last.steps = sum.steps;
+    last.zoneSeconds = sum.zoneSeconds;
+    writeLastWalk(walk::encodeLastWalk(last, chart));
     boardlog::printf("[fs] walk %s recovered: %s, %.0f m\n", walk.c_str(),
                      walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
     return true;
@@ -499,6 +513,29 @@ void Storage::forEachHistoryLine(const std::function<void(const std::string&)>& 
 
 void Storage::writeHistory(const String& csv) {
     if (ok_ && !replaceFile(kHistory, kHistoryTmp, csv)) boardlog::println("[fs] cannot save the history");
+}
+
+void Storage::writeLastWalk(const std::vector<uint8_t>& bytes) {
+    if (!ok_) return;
+    File f = LittleFS.open(kLastWalkTmp, FILE_WRITE);
+    const bool written = f && f.write(bytes.data(), bytes.size()) == bytes.size();
+    if (f) f.close();
+    // Costs only the last walk on screen after a restart: logged, not fatal.
+    if (!written || !moveOver(kLastWalkTmp, kLastWalk)) {
+        LittleFS.remove(kLastWalkTmp);
+        boardlog::println("[fs] cannot save the last walk for the screen");
+    }
+}
+
+std::vector<uint8_t> Storage::readLastWalk() {
+    std::vector<uint8_t> bytes;
+    if (!ok_ || !LittleFS.exists(kLastWalk)) return bytes;
+    File f = LittleFS.open(kLastWalk, FILE_READ);
+    if (!f) return bytes;
+    bytes.resize(f.size());
+    if (f.read(bytes.data(), bytes.size()) != bytes.size()) bytes.clear();
+    f.close();
+    return bytes;
 }
 
 void Storage::openStrap(uint32_t now) {

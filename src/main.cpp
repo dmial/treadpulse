@@ -36,6 +36,7 @@
 #else
 #error "src/user_config.h is missing: copy src/user_config.example.h to src/user_config.h and fill it in"
 #endif
+#include "last_walk.h"
 #include "walk_history.h"
 #include "walk_settings.h"
 #include "walk_tracker.h"
@@ -154,6 +155,25 @@ day::Walk dayWalk(uint32_t startMs, uint32_t endMs, uint32_t walkSeconds, uint32
 }
 
 void saveDay(const day::Walk* live) { storage.writeDayLog(String(dayLog.toCsv(live).c_str())); }
+
+// The last kept walk as the screen shows it, so a restart brings it back.
+void saveLastWalk() {
+    walk::LastWalk w;
+    w.walkSeconds = keptWalkSeconds;
+    w.steps = keptWalkSteps;
+    w.zoneSeconds = keptWalkZones;
+    storage.writeLastWalk(walk::encodeLastWalk(w, history));
+}
+
+// At power-on: the last kept walk back on screen, chart included.
+void restoreLastWalk() {
+    const std::vector<uint8_t> bytes = storage.readLastWalk();
+    walk::LastWalk w;
+    if (bytes.empty() || !walk::decodeLastWalk(bytes.data(), bytes.size(), w, history)) return;
+    keptWalkSeconds = w.walkSeconds;
+    keptWalkSteps = w.steps;
+    keptWalkZones = w.zoneSeconds;
+}
 
 // Keeps a walk for the statistics page; walks older than its days are dropped.
 void rememberWalk(const archive::Entry& e) {
@@ -365,6 +385,7 @@ void tick(uint32_t now) {
             keptWalkSeconds = sum.walkSeconds();
             keptWalkSteps = sum.steps;
             keptWalkZones = sum.zoneSeconds;
+            saveLastWalk();
             netNow = true;
             netDueMs = now + kNetAfterWalkMs;
         } else {
@@ -474,6 +495,7 @@ void setup() {
     if (storage.begin()) boardlog::begin();
     // Before any new walk can start, close the one a power cut left open.
     storage.recoverUnfinishedWalks();
+    restoreLastWalk();  // after the recovery: a recovered walk is the last one
     clocksync::begin();  // the time zone, which the history's days follow
     tidyHistory();
     loadHistory();

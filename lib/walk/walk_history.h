@@ -40,6 +40,12 @@ class History {
     // The walk in `count` columns over spanSeconds(minSpanS).
     std::vector<Column> columns(int count, uint32_t minSpanS) const;
 
+    // The history as bytes, to keep in flash, and back. readBytes() takes only
+    // what appendBytes() wrote; anything else leaves the history empty and
+    // returns false.
+    void appendBytes(std::vector<uint8_t>& out) const;
+    bool readBytes(const uint8_t* data, size_t len);
+
    private:
     struct Point {
         uint16_t bpm = 0;

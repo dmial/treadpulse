@@ -912,9 +912,10 @@ int Dashboard::zoneNow(const Model& m) const {
 // shows, as 0:00 until reached, so the gutter is never empty; zones 2..5 show
 // once the walk has reached them. One look, one meaning: gray is "no signal",
 // dim is "not the zone the pulse is in now" (all of them at rest). The times
-// count with the treadmill and the strap both on, so they are gray without either.
+// count with the treadmill and the strap both on, so they are gray without
+// either, and gray once the walk is finished, as its chart is.
 void Dashboard::updateZoneTimes(const Model& m) {
-    const bool counting = m.pulseUp && m.bpm > 0 && m.treadmillUp;
+    const bool counting = m.walking && m.pulseUp && m.bpm > 0 && m.treadmillUp;
     const int zone = zoneNow(m);
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
         lv_obj_t* label = zoneTimes_[z - 1];
@@ -941,8 +942,9 @@ float Dashboard::pulseY(float bpm) const {
 }
 
 void Dashboard::updateChart(const Model& m) {
-    const int zone = zoneNow(m);
-    if (chartBuilt_ && chartPulseUp_ == m.pulseUp && chartSpanS_ == m.chartSpanS &&
+    const bool live = m.walking && m.pulseUp;
+    const int zone = live ? zoneNow(m) : -1;
+    if (chartBuilt_ && chartLive_ == live && chartSpanS_ == m.chartSpanS &&
         samePulse(chartColumns_, m.columns)) {
         if (chartZone_ != zone) {  // only the bright band moves
             chartZone_ = zone;
@@ -953,13 +955,13 @@ void Dashboard::updateChart(const Model& m) {
     chartBuilt_ = true;
     chartColumns_ = m.columns;
     chartSpanS_ = m.chartSpanS;
-    chartPulseUp_ = m.pulseUp;
+    chartLive_ = live;
     chartZone_ = zone;
     pulseRuns_.clear();
     hasPulseEnd_ = false;
 
     const std::vector<walk::Column>& cols = m.columns;
-    auto colorOf = [&](float bpm) { return m.pulseUp ? kZoneColor[pulse::zoneOf(s_.zones, bpm)] : kOff; };
+    auto colorOf = [&](float bpm) { return live ? kZoneColor[pulse::zoneOf(s_.zones, bpm)] : kOff; };
 
     // The pulse smoothed over ~12 s, so beat-to-beat wobble does not turn the
     // line into a saw; gaps (no strap) stay gaps.
@@ -1036,7 +1038,7 @@ void Dashboard::updateChart(const Model& m) {
     for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
         if (cols[i].hasData) end = i + 1;
     }
-    updateLevel(bpm, end, secondsPerColumn, m.pulseUp);
+    updateLevel(bpm, end, secondsPerColumn, live);
     updateAxis(m.chartSpanS);
     lv_obj_invalidate(chart_);
 }
@@ -1379,10 +1381,10 @@ void Dashboard::drawChart(lv_layer_t* layer) const {
     // Zone bands, the one the pulse is in now stronger
     for (int z = 1; z <= pulse::kZoneCount; ++z) {
         const float lo = s_.zones[z - 1], hi = std::min(s_.zones[z], pulseHi());
-        const bool now = chartPulseUp_ && z == chartZone_;
+        const bool now = chartLive_ && z == chartZone_;
         drawRect(layer, x1, static_cast<int32_t>(std::lround(pulseY(hi))), x2,
                  static_cast<int32_t>(std::lround(pulseY(lo))) - 1,
-                 chartPulseUp_ ? kZoneColor[z] : kOffBand,
+                 chartLive_ ? kZoneColor[z] : kOffBand,
                  now ? static_cast<lv_opa_t>(std::min(255, 2 * kBandOpa[z])) : kBandOpa[z]);
     }
 

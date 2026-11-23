@@ -66,7 +66,9 @@ struct Model {
     // The same walk's seconds by heart rate zone: [0] below zone 1, [1..5] the
     // zones. Counted only with the treadmill and the strap both on.
     std::array<uint32_t, pulse::kZoneCount + 1> walkZoneSeconds{};
-    bool walking = false;      // a walk is on; otherwise the walk shown is the last one
+    // A walk is being recorded (also while its after-walk pulse still goes to
+    // it); otherwise the walk shown is the last one, finished.
+    bool walking = false;
     bool beltMoving = false;   // the belt moves: the dashboard comes back from the statistics
 
     // From the chest strap; "---" and gray while there is no fresh pulse
@@ -257,7 +259,9 @@ class Dashboard {
     bool chartBuilt_ = false;
     std::vector<walk::Column> chartColumns_;
     uint32_t chartSpanS_ = 0;
-    bool chartPulseUp_ = false;
+    // In color: the walk on the chart is being recorded and the strap sends a
+    // pulse. A finished walk's chart stays gray, whatever the strap does later.
+    bool chartLive_ = false;
     int chartZone_ = -1;  // its band drawn stronger: the zone the pulse is in now (0 rest), -1 without one
     std::vector<Run> pulseRuns_;
     lv_point_precise_t pulseEnd_ = {0, 0};
