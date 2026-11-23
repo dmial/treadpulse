@@ -724,23 +724,29 @@ void Dashboard::message(const char* title, const char* detail) {
 void Dashboard::updateStatus(const Model& m) {
     std::string text;
     uint32_t color = kMuted;
-    switch (m.upload) {
-        case Upload::Done:
-            text = "all uploaded";
-            break;
-        case Upload::Pending:
-            text = "to upload: " + std::to_string(m.pendingWalks);
-            color = kPending;
-            if (m.netProblem != NetProblem::None) {
-                text += m.netProblem == NetProblem::NoWifi ? " · no Wi-Fi" : " · upload failed";
-                if (!m.nextTry.empty()) text += ", retry " + m.nextTry;
+    if (m.strapTailLeftS >= 0 && m.upload != Upload::StorageError) {
+        // The walk is not complete yet, so not ready to upload either.
+        text = "recording pulse · " + minutesSeconds(static_cast<uint32_t>(m.strapTailLeftS)) + " left";
+        color = kPending;
+    } else {
+        switch (m.upload) {
+            case Upload::Done:
+                text = "all uploaded";
+                break;
+            case Upload::Pending:
+                text = "to upload: " + std::to_string(m.pendingWalks);
+                color = kPending;
+                if (m.netProblem != NetProblem::None) {
+                    text += m.netProblem == NetProblem::NoWifi ? " · no Wi-Fi" : " · upload failed";
+                    if (!m.nextTry.empty()) text += ", retry " + m.nextTry;
+                    color = kError;
+                }
+                break;
+            case Upload::StorageError:
+                text = "storage error";
                 color = kError;
-            }
-            break;
-        case Upload::StorageError:
-            text = "storage error";
-            color = kError;
-            break;
+                break;
+        }
     }
     // The same status line on both pages.
     for (lv_obj_t* l : {status_, statsStatus_}) {

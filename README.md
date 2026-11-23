@@ -18,6 +18,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 - **Day strip:** when you walked today, with each walk's minutes over it.
 - **The last two weeks:** swipe sideways for a bar per day, split by pulse zone (striped where you walked without the strap), with weeks set apart, your average day in minutes and steps, the days on goal and in a row, and the average day's minutes in zones 2 to 5. The history stays on the board, so this works without the cloud; the dashboard comes back when the belt starts.
 - **Every walk logged:** per-second data, segments at constant speed and incline, a summary. Uploaded to your own cloud storage as CSV; one line per walk also stays on the board for good. A walk under a minute (an accidental start) leaves no trace.
+- **Everything the strap sends, kept raw:** every beat-to-beat interval, and from a Polar H10 its ECG and accelerometer too, from a minute before the walk until the strap comes off after it (two minutes at most), while the pulse comes down. Nothing is worked out of it on the board; a script turns the file into CSV for whatever analysis comes later.
 - **No stale numbers:** grey means no fresh data from the treadmill or the strap.
 
 | Above the interval threshold | Daily goal met, in hours and minutes | After the walk |
@@ -36,7 +37,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 |---|---|
 | Display board | [Freenove ESP32-S3 Display 5″](https://store.freenove.com/products/fnk0115) (FNK0115, [docs](https://docs.freenove.com/projects/fnk0115/en/latest/)): 800×480 screen, ESP32-S3, speaker. |
 | Treadmill | Any with Bluetooth [FTMS](https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/). Look for it in the specs; treadmills that work with apps like Zwift or Kinomap usually have it. Tested on the [Merach W50](https://merachfit.eu/products/merach-w50-treadmill). |
-| Heart rate strap (optional) | Any Bluetooth chest strap, e.g. [Polar H10](https://www.polar.com/en/sensors/h10-heart-rate-sensor). |
+| Heart rate strap (optional) | Any Bluetooth chest strap, e.g. [Polar H10](https://www.polar.com/en/sensors/h10-heart-rate-sensor), which also streams its ECG and accelerometer. |
 | Power | Any USB-C phone charger. |
 | Desk stand (optional) | Print it: two parts, about 95 g of PLA, plus four 3 × 14 mm screws. [See it in 3D](https://dmial.github.io/treadpulse/enclosure/viewer.html); files, print settings and assembly in [enclosure](enclosure/). |
 
@@ -47,9 +48,9 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 ## How it works
 
 - **Bluetooth in.** The board connects to the first treadmill and the first heart rate strap it finds. Nothing to pair.
-- **No SD card.** Walks are written to the board's own memory: about 40 hours of walking fit.
+- **No SD card.** Walks are written to the board's own memory: about 40 hours of walking fit, or about 3 hours with a Polar strap's ECG and accelerometer, which is plenty when walks upload after each one.
 - **Wi-Fi only between walks**, because it shares the radio with Bluetooth: at power-on and after each walk, to set the clock and upload walks.
-- **Your own cloud, optional.** A tiny Cloudflare Worker stores walk files in your R2 bucket. The free tier is plenty: a year of hour-long daily walks is about 90 MB.
+- **Your own cloud, optional.** A tiny Cloudflare Worker stores walk files in your R2 bucket. The free tier (10 GB) is plenty: a year of hour-long daily walks is about 90 MB, or about 1.1 GB with a Polar strap's full data.
 
 | Without | You lose |
 |---|---|

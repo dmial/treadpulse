@@ -75,7 +75,16 @@ Put putWalkFile(Connection& conn, const String& walk, const char* file) {
         boardlog::printf("[upload] %s missing, skipped\n", path.c_str());
         return Put::Ok;
     }
-    if (!conn.beginPut("walks/" + walk + "/" + file, "text/csv")) {
+    // Nothing to send. Besides, HTTPClient takes a zero-length stream as one of
+    // unknown length and waits for its end, which a File never signals: the
+    // upload would hang for as long as the connection stays open.
+    if (f.size() == 0) {
+        f.close();
+        boardlog::printf("[upload] %s empty, skipped\n", path.c_str());
+        return Put::Ok;
+    }
+    const char* type = String(file).endsWith(".bin") ? "application/octet-stream" : "text/csv";
+    if (!conn.beginPut("walks/" + walk + "/" + file, type)) {
         f.close();
         return Put::Error;
     }

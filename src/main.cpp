@@ -57,9 +57,12 @@ constexpr uint32_t kNtpTimeoutMs = 10000;
 constexpr uint32_t kBootUploadBudgetMs = 30000;
 constexpr uint32_t kUploadBudgetMs = 120000;
 constexpr uint32_t kNetRetryMs = 10UL * 60 * 1000;          // after a failed attempt
-// A walk ends seconds after stop is pressed, so Wi-Fi waits this long: a walk
-// started again right away is not held up by the upload.
+// A walk ends seconds after stop is pressed, so Wi-Fi waits at least this long:
+// a walk started again right away is not held up by the upload. It also waits
+// for the walk to be complete, its after-walk pulse recorded (maybeNetSession).
 constexpr uint32_t kNetAfterWalkMs = 60UL * 1000;
+// No pulse for this long: the strap is off. The after-walk recording ends there.
+constexpr uint32_t kStrapOffMs = 10UL * 1000;
 // Without a clock the day ring cannot tell today's saved walks from older ones
 // and shows only this boot's, so a missing clock is retried sooner.
 constexpr uint32_t kClockRetryMs = 60UL * 1000;
@@ -287,7 +290,8 @@ std::string nextNetText(uint32_t now) {
 }
 
 void maybeNetSession(uint32_t now) {
-    if (tracker.inSession()) return;
+    // Wi-Fi blocks the loop, and with it the strap's data.
+    if (tracker.inSession() || storage.strapTail()) return;
     if (!clockDue(now) && storage.pendingCount() == 0) return;
     if (netNow) {
         if (static_cast<int32_t>(now - netDueMs) < 0) return;
@@ -371,6 +375,14 @@ void tick(uint32_t now) {
         }
         saveDay(nullptr);  // also drops the walk if it was saved as in progress
     }
+    // Everything the strap sent goes to the walk's strap.bin while one is open;
+    // between walks only the last minute waits in memory for the next one.
+    heartRate.drainRecords(now, storage.strapRecording(),
+                           [](const uint8_t* record, size_t len) { storage.appendStrap(record, len); });
+    // Signed: the strap's task may have stamped a reading just after `now`.
+    const bool strapOff =
+        !hr.hasValid || static_cast<int32_t>(now - hr.lastValidMs) >= static_cast<int32_t>(kStrapOffMs);
+    storage.tickStrap(now, strapOff);
     if (dayLog.resolve(epoch, now)) saveDay(liveWalk);  // the clock just got set
     dateHistory();
     if (liveWalk && now - lastDaySaveMs >= kDaySaveMs) {
@@ -394,7 +406,10 @@ void tick(uint32_t now) {
     m.walkSeconds = tracker.inSession() ? tracker.walkSeconds() : keptWalkSeconds;
     m.walkSteps = tracker.inSession() ? tracker.steps() : keptWalkSteps;
     m.walkZoneSeconds = tracker.inSession() ? tracker.zoneSeconds() : keptWalkZones;
-    m.walking = tracker.inSession();
+    // The walk is not over while the pulse coming down still goes to it.
+    m.walking = tracker.inSession() || storage.strapTail();
+    m.strapTailLeftS =
+        storage.strapTail() ? static_cast<int>((storage.strapTailLeftMs(now) + 999) / 1000) : -1;
     m.pulseUp = heartRateUp;
     m.bpm = hr.bpm;
     m.goalSeconds = dailyGoalSeconds();
@@ -476,6 +491,7 @@ void setup() {
 
 void loop() {
     BleLink::loopAll();
+    heartRate.loop();
     display::loop();
 
     const uint32_t now = millis();

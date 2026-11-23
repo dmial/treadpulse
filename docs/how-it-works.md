@@ -12,17 +12,19 @@ Each walk is a folder in the board's memory:
 /walks/0042_2026-11-10T0815Z/samples.csv    one line per second
 /walks/0042_2026-11-10T0815Z/segments.csv   stretches at constant speed and incline
 /walks/0042_2026-11-10T0815Z/summary.csv    written when the walk ends
+/walks/0042_2026-11-10T0815Z/strap.bin      everything the heart rate strap sent
 ```
 
-The folder name is the walk number and its start time in UTC. The number keeps growing across uploads and reflashes. If the board didn't know the time when the walk started, the date is replaced by `nodate` and a random tail: `0042_nodate_9f3a1c2e`. Such a walk waits for the clock before it uploads: once the board sets its clock, it works out the walk's times from the time since power-on, fills them into all three files and renames the folder after the start, so the walk reaches the cloud dated. The time since power-on only dates a walk until the power goes: a walk from a power-on that never got the clock stays `nodate`, and uploads as it is after the next start.
+The folder name is the walk number and its start time in UTC. The number keeps growing across uploads and reflashes. If the board didn't know the time when the walk started, the date is replaced by `nodate` and a random tail: `0042_nodate_9f3a1c2e`. Such a walk waits for the clock before it uploads: once the board sets its clock, it works out the walk's times from the time since power-on, fills them into the three CSV files and renames the folder after the start, so the walk reaches the cloud dated. The time since power-on only dates a walk until the power goes: a walk from a power-on that never got the clock stays `nodate`, and uploads as it is after the next start.
 
 **All times in the files are UTC**, e.g. `2026-11-10T08:15:23Z`. Only the clock on the screen uses the local time zone.
 
 - **`summary.csv`**: number, start, end, walking time, distance, steps, average and top speed, top incline, elevation gain, average and top pulse, number of segments. The pulse counts only seconds when the belt moved; without a strap these columns are empty. The last column, `recovered`, is `yes` for a walk closed after a power loss.
 - **`samples.csv`**: every second: time, state (`walk` / `pause` / `no_data`), walking time, speed, incline, distance, the treadmill's own counters, the pulse and the steps so far.
 - **`segments.csv`**: how long you walked at each speed and incline, with average and top pulse. A new segment opens once speed or incline has held a new value for 3 seconds, so stepping 3.5 → 3.6 → 3.7 → 3.8 km/h with the buttons is one segment, not four.
+- **`strap.bin`**: the strap's raw data, see [The strap's data](#the-straps-data).
 
-The files open in Numbers, Excel or anything that reads CSV.
+The CSV files open in Numbers, Excel or anything that reads CSV.
 
 ## Steps
 
@@ -49,6 +51,27 @@ The example values, 57 + 11.4 × speed, were measured on one walker, 187 cm tall
 
 Outside the measured speeds, such as the seconds of speeding up and slowing down, the estimate is rougher, but those seconds barely move a walk's total.
 
+## The strap's data
+
+Besides the pulse on screen, the board keeps everything the strap sends, as it arrives, in the walk's `strap.bin`:
+
+- **Every heart rate notification:** the pulse, whether the strap touches the skin, and the beat-to-beat (RR) intervals, to the millisecond. Any Bluetooth strap sends these.
+- **Polar's own measurements**, asked for on every connect (Polar H10): the **ECG**, 130 samples a second in microvolts, and the **accelerometer**, 50 samples a second on three axes, ±8 g. The board pairs with the strap first ("just works", no bond kept): over a plain link the H10 took the commands and stayed silent. A stream that stops for 15 seconds is started again, at most once a minute; the board never stands still waiting for the strap's answer.
+
+The file starts a minute before the belt moves (between walks the board keeps the last minute in memory). After the walk ends it goes on until the strap is off (no pulse for 10 seconds), two minutes at most, to catch the pulse coming down. Until then the walk is not complete: the status line says "recording pulse" with the time left, and the walk is neither waiting for upload nor uploaded. For a clean recovery curve, keep the strap on and stand still on the belt for the first minute after stop; the accelerometer shows whether you did.
+
+Nothing is worked out of it on the board: the file holds the bytes as the strap sent them, so a better decoder later can still read all of it. `tools/strap_decode.py` turns it into CSV:
+
+```
+python3 tools/strap_decode.py walks/0042_2026-11-10T0815Z/strap.bin
+```
+
+It writes `pulse.csv`, `rr.csv`, `ecg.csv`, `acc.csv` and `notes.csv` next to the file and prints a summary: how many samples, their rate by the strap's clock, records lost. Every row has `uptime_ms`, the board's clock when the data arrived; `samples.csv` has the same clock in `uptime_s`, next to UTC time, which lines the two up. ECG and accelerometer rows also have `strap_ns`, the strap's own clock for each sample.
+
+With a Polar H10 the file grows by about 3 MB an hour (ECG 1.4 MB, accelerometer 1.1 MB), so about 3 hours of walking fit in the board's memory before an upload. When memory is nearly full, `strap.bin` stops, with a note in it, while the CSV files go on.
+
+The format (`lib/strap/strap_file.h`): the 8 bytes `STRAP`, 0, format version (1), 0; then one record after another, each a type (1 byte), the board's uptime in ms (4 bytes), the payload's length (2 bytes) and the payload, all little-endian. Types: 1 heart rate notification, 2 Polar data frame, 3 Polar control point reply, 16 the board's note (text: walk started, walk ended, strap connected with its battery level), 17 records lost because the board fell behind. A power loss can leave the last record cut short.
+
 ## History
 
 Walk folders leave the board once they are uploaded, so the board also keeps a short line for every walk it has kept, in `/history.csv`, and never deletes it. It works without the cloud, and making room for a new walk deletes only walk folders, never the history. About 100 bytes a walk: years of walking take less than a megabyte.
@@ -74,14 +97,14 @@ A walk that ends before the board knows the time gets its line once the clock is
 Wi-Fi shares the radio with Bluetooth, so it stays off while you walk. The board goes online:
 
 - at power-on, before it looks for the treadmill (at most 30 seconds of uploading; the rest waits until after the walk);
-- a minute after a walk ends, so that starting again right away isn't held up by Wi-Fi;
+- after a walk, once it is complete (its after-walk pulse recorded) and at least a minute after it ended, so that starting again right away isn't held up by Wi-Fi;
 - after a failed attempt, while no walk is going on: every minute while the clock is not set yet (without it the daily ring shows only walks since power-on), otherwise every 10 minutes.
 
 Each time it tries to join the network twice, 10 seconds each, and writes to its log why the network refused. Meanwhile the screen says "Connecting to Wi-Fi…". When the attempt fails, the status line turns red while walks wait: `to upload: 1 · no Wi-Fi, retry 18:15` (or `upload failed` when the network was there but the receiver didn't take the files). Without a clock the time reads `in 1 min`; during a walk the retry time is left out, since the board waits for the walk to end.
 
-A walk goes up file by file, the summary last. Once the receiver has confirmed all three files, the board deletes the walk. In the bucket, files keep the same paths: `walks/<walk>/<file>`. After the walks, the board sends its log (below).
+A walk goes up file by file, the summary last. Once the receiver has confirmed all its files, the board deletes the walk. In the bucket, files keep the same paths: `walks/<walk>/<file>`. After the walks, the board sends its log (below).
 
-About 9.9 MB of the board's memory is set aside for walks; an hour of walking takes about 250 KB, so roughly 40 hours fit. When memory runs out, starting a new walk deletes the oldest walk that is not uploaded yet.
+About 9.9 MB of the board's memory is set aside for walks; an hour of walking takes about 250 KB of CSV, so roughly 40 hours fit, or about 3 hours with a Polar strap's `strap.bin`. When memory runs out, starting a new walk deletes the oldest walk that is not uploaded yet.
 
 The receiver (`cloud/`) only accepts writes: nothing can be read back through it. It never overwrites a stored walk file: the same file again answers "already stored" (a retried upload), a different file under the same name is refused (409). The log is the one exception: each upload replaces `logs/board.txt`.
 
@@ -104,7 +127,7 @@ Reading it from the bucket: `npx wrangler r2 object get treadmill-walks/logs/boa
 
 **The treadmill's totals read zero.** They do during a pause (and come back where they were when you resume) and after a stop (a new workout counts up from zero). The board takes a zero as "no reading", not as a reset, so distance never counts twice. The Merach W50 also sends, about once a walk, a single reading with speed, distance and time all at zero while the belt keeps moving; the board drops it. A real stop looks different: the speed drops to zero first, while distance and time still hold.
 
-**The board loses power.** The per-second log is flushed every 10 seconds, so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes; one with less than a minute of walking is deleted instead. A line cut in half by the power loss is skipped. The recovered walk is added to the history.
+**The board loses power.** The per-second log and `strap.bin` are flushed every 10 seconds (the board's own notes in `strap.bin` at once), so at most 10 seconds are lost. At the next power-on the board finds walks without a summary and closes them: it replays the per-second log, rewrites the segments and writes a summary with `recovered` = `yes`. The walk ends at the last moment the belt moved, as if the board had waited out the 5 minutes; one with less than a minute of walking is deleted instead. A line cut in half by the power loss is skipped. The recovered walk is added to the history.
 
 If the board restarts mid-walk while the treadmill keeps going, you get two walks: the recovered one and a new one.
 
@@ -114,6 +137,7 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 |---|---|
 | `lib/ftms/` | Parses treadmill data (FTMS). No Arduino dependencies |
 | `lib/heart_rate/` | Parses heart rate strap data (Heart Rate Measurement). No Arduino dependencies |
+| `lib/strap/` | The strap's raw data: the `strap.bin` format, the queue in front of it, Polar's measurement commands (PMD). No Arduino dependencies |
 | `lib/walk/` | Walking time, walks, segments, distance, elevation gain, pulse stats; the per-second log format and power-loss recovery. No Arduino dependencies |
 | `lib/pulse/` | Heart rate zones, the hint to the next threshold, threshold beeps |
 | `lib/day/` | Today's total and the walks on the day strip |
@@ -122,7 +146,7 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `lib/screen/` | The dashboard (LVGL): layout, pulse chart, ring, day strip; Geologica fonts (`tools/make_fonts.sh`). No Arduino dependencies: the same code renders on a computer (`pio run -e sim`) |
 | `src/ble_link.*` | Bluetooth: scanning, connecting, subscribing, reconnecting (NimBLE) |
 | `src/treadmill_link.*` | Treadmill link on top of `ble_link` |
-| `src/heart_rate_link.*` | Heart rate strap link on top of `ble_link` |
+| `src/heart_rate_link.*` | Heart rate strap link on top of `ble_link`; starts a Polar strap's ECG and accelerometer and queues everything for `strap.bin` |
 | `src/display.*` | The board's RGB panel and its link to LVGL |
 | `src/touch.*` | The touch controller (GT911), polled over I2C, as LVGL's pointer |
 | `src/storage.*` | The board's memory (LittleFS): walk logs, upload queue, day log, history |
@@ -137,6 +161,7 @@ If the board restarts mid-walk while the treadmill keeps going, you get two walk
 | `src/user_config.example.h` | Template for `src/user_config.h`: daily goal, zones, thresholds, time zone, step formula |
 | `partitions.csv` | Memory layout: two 3 MB firmware slots, ~9.9 MB for walks |
 | `cloud/` | The receiver: a Cloudflare Worker that stores files in R2 |
+| `tools/strap_decode.py` | Turns a walk's `strap.bin` into CSV files, on a computer |
 | `test/` | Tests for `lib/`, run on a computer: `pio test -e native` |
 
 Pinned versions: ESP32 Arduino core 3.2.0 (the one Freenove tests its examples with), Arduino_GFX 1.6.5, NimBLE-Arduino 2, LVGL 9.5.

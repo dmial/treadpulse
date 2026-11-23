@@ -8,6 +8,7 @@
 
 #include "board_log.h"
 #include "clock_sync.h"
+#include "strap_file.h"
 #include "walk_settings.h"
 
 namespace {
@@ -16,6 +17,7 @@ constexpr const char* kWalksDir = "/walks";
 constexpr const char* kSamples = "samples.csv";
 constexpr const char* kSegments = "segments.csv";
 constexpr const char* kSummary = "summary.csv";
+constexpr const char* kStrap = "strap.bin";
 constexpr const char* kDayLog = "/day.csv";
 constexpr const char* kDayLogTmp = "/day.tmp";
 constexpr const char* kHistory = "/history.csv";
@@ -24,8 +26,11 @@ constexpr const char* kHistoryTmp = "/history.tmp";
 // Rows reach flash in batches: a power cut loses at most this much of the log.
 constexpr uint32_t kFlushIntervalMs = 10000;
 // Below this much free space, the oldest unsent walks make room for a new one
-// (an hour of walking takes ~250 KB).
+// (an hour of walking takes ~250 KB of CSV, plus ~3 MB of strap.bin).
 constexpr size_t kMinFreeBytes = 1024 * 1024;
+// strap.bin stops short of this much free space, which stays for the CSV files
+// of the walk (and the log): even a 4-hour walk's samples.csv fits.
+constexpr size_t kStrapReserveBytes = kMinFreeBytes + 512 * 1024;
 
 String timeAt(uint32_t uptimeMs) {
     return clocksync::formatUtc(clocksync::epochAtUptime(uptimeMs));
@@ -118,7 +123,8 @@ std::vector<String> Storage::pendingWalks() {
     std::vector<String> walks;
     if (!ok_) return walks;
     for (const String& w : listDir(kWalksDir, true)) {
-        if (w != walk_ && isFinished(w)) walks.push_back(w);
+        // A finished walk still recording its strap.bin waits for it.
+        if (w != walk_ && w != strapWalk_ && isFinished(w)) walks.push_back(w);
     }
     // Names start with the zero-padded walk number, so this is oldest first.
     std::sort(walks.begin(), walks.end());
@@ -126,6 +132,7 @@ std::vector<String> Storage::pendingWalks() {
 }
 
 void Storage::removeWalk(const String& walk) {
+    if (walk == strapWalk_) dropStrap();
     const String dir = walkDir(walk);
     for (const String& f : listDir(dir, false)) LittleFS.remove(dir + "/" + f);
     LittleFS.rmdir(dir);
@@ -157,8 +164,9 @@ int Storage::dateWalks() {
     int dated = 0;
     std::vector<UndatedWalk> recording;
     for (UndatedWalk& w : undated_) {
-        if (!w.summary) {
-            recording.push_back(std::move(w));  // dated once it is finished
+        // Dated once it is finished, and its strap.bin too: dating renames the folder.
+        if (!w.summary || w.name == strapWalk_) {
+            recording.push_back(std::move(w));
             continue;
         }
         if (dateWalk(w, offsetS)) ++dated;
@@ -320,6 +328,8 @@ void Storage::makeRoom() {
 
 void Storage::startWalk(uint32_t startUptimeMs) {
     if (!ok_) return;
+    // The last walk's strap.bin ends here, so that walk can upload.
+    closeStrap(millis(), "after-walk recording cut short: a new walk started");
     makeRoom();
     walkId_ = takeWalkId();
 
@@ -349,6 +359,7 @@ void Storage::startWalk(uint32_t startUptimeMs) {
         u.startUptimeMs = startUptimeMs;
         undated_.push_back(std::move(u));
     }
+    openStrap(startUptimeMs);
     boardlog::printf("[fs] walk %s started\n", walk_.c_str());
 }
 
@@ -374,6 +385,12 @@ void Storage::finishWalk(const walk::Summary& sum) {
 
     const String walk = walk_;
     walk_ = "";
+    // strap.bin goes on for a while: the pulse coming down after the walk.
+    if (strapWalk_ == walk) {
+        const uint32_t now = millis();
+        strapNote(now, "walk ended");
+        strapTailEndMs_ = now + kStrapTailMs;
+    }
     if (!writeSummary(walk, fromStd(walk::formatSummaryRow(walkId_, sum, timeAt(sum.startMs).c_str(),
                                                            timeAt(sum.endMs).c_str(), false)))) {
         return;
@@ -482,6 +499,99 @@ void Storage::forEachHistoryLine(const std::function<void(const std::string&)>& 
 
 void Storage::writeHistory(const String& csv) {
     if (ok_ && !replaceFile(kHistory, kHistoryTmp, csv)) boardlog::println("[fs] cannot save the history");
+}
+
+void Storage::openStrap(uint32_t now) {
+    const size_t used = LittleFS.usedBytes();
+    const size_t total = LittleFS.totalBytes();
+    const size_t free = total > used ? total - used : 0;
+    strapRoom_ = free > kStrapReserveBytes ? free - kStrapReserveBytes : 0;
+    strapBytes_ = 0;
+    strapFull_ = false;
+    strapTailEndMs_.reset();
+
+    // A walk without strap.bin is still a whole walk: no fail().
+    strap_ = LittleFS.open(walkFile(walk_, kStrap), FILE_WRITE);
+    if (!strap_) {
+        boardlog::printf("[fs] walk %s: cannot create strap.bin\n", walk_.c_str());
+        return;
+    }
+    strapWalk_ = walk_;
+    lastStrapFlushMs_ = now;
+    if (!writeStrap(strap::kFileHeader, strap::kFileHeaderSize)) return;
+    strapNote(now, "walk started");
+}
+
+bool Storage::writeStrap(const uint8_t* data, size_t len) {
+    if (strap_.write(data, len) == len) {
+        strapBytes_ += len;
+        return true;
+    }
+    boardlog::printf("[fs] walk %s: cannot write strap.bin, it ends at %u KB\n", strapWalk_.c_str(),
+                     static_cast<unsigned>(strapBytes_ / 1024));
+    dropStrap();
+    pendingCount_ = static_cast<int>(pendingWalks().size());
+    return false;
+}
+
+void Storage::strapNote(uint32_t uptimeMs, const char* text) {
+    if (!strapRecording()) return;
+    uint8_t record[strap::kMaxRecordSize];
+    const size_t len = strap::encodeRecord(strap::RecordType::Note, uptimeMs,
+                                           reinterpret_cast<const uint8_t*>(text), strlen(text), record);
+    // Notes are few and tell the file's story, so each goes to flash at once:
+    // a power cut never leaves the file empty, even with no strap connected.
+    if (writeStrap(record, len)) strap_.flush();
+}
+
+void Storage::appendStrap(const uint8_t* record, size_t len) {
+    if (!strapRecording()) return;
+    if (strapBytes_ + len > strapRoom_) {
+        if (!strapFull_) {
+            strapFull_ = true;
+            strapNote(millis(), "memory nearly full: the strap's data stops here");
+            boardlog::printf("[fs] walk %s: memory nearly full, strap.bin stops at %u KB\n",
+                             strapWalk_.c_str(), static_cast<unsigned>(strapBytes_ / 1024));
+        }
+        return;
+    }
+    if (!writeStrap(record, len)) return;
+    const uint32_t now = millis();
+    if (now - lastStrapFlushMs_ >= kFlushIntervalMs) {
+        strap_.flush();  // survive a power cut
+        lastStrapFlushMs_ = now;
+    }
+}
+
+uint32_t Storage::strapTailLeftMs(uint32_t now) const {
+    if (!strapTail()) return 0;
+    const int32_t left = static_cast<int32_t>(*strapTailEndMs_ - now);
+    return left > 0 ? static_cast<uint32_t>(left) : 0;
+}
+
+void Storage::tickStrap(uint32_t now, bool strapOff) {
+    if (!strapTail()) return;
+    if (strapOff) {
+        closeStrap(now, "after-walk recording ended: strap off");
+    } else if (static_cast<int32_t>(now - *strapTailEndMs_) >= 0) {
+        closeStrap(now, "after-walk recording ended: time up");
+    }
+}
+
+void Storage::closeStrap(uint32_t now, const char* why) {
+    if (!strapRecording()) return;
+    strapNote(now, why);
+    if (!strapRecording()) return;  // the note could not be written
+    boardlog::printf("[fs] walk %s: strap.bin %u KB\n", strapWalk_.c_str(),
+                     static_cast<unsigned>(strapBytes_ / 1024));
+    dropStrap();
+    pendingCount_ = static_cast<int>(pendingWalks().size());
+}
+
+void Storage::dropStrap() {
+    if (strap_) strap_.close();
+    strapWalk_ = "";
+    strapTailEndMs_.reset();
 }
 
 void Storage::fail(const char* what) {

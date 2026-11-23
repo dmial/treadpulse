@@ -142,6 +142,7 @@ bool BleLink::connect() {
     deviceName_ = foundName_;
     connected_.store(true);
     boardlog::printf("[%s] subscribed to %s\n", tag_, deviceName_.c_str());
+    if (onConnect_) onConnect_(client_);
     return true;
 }
 

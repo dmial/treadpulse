@@ -24,6 +24,11 @@ class BleLink {
     // device has it; a device without it still connects. Call before begin().
     void listenAlso(uint16_t characteristicUuid, NotifyHandler onNotify);
 
+    // Runs on loop() after every successful connect, for setup beyond the one
+    // service (e.g. another service of the same device). Call before begin().
+    using ConnectHandler = std::function<void(NimBLEClient* client)>;
+    void onConnect(ConnectHandler handler) { onConnect_ = std::move(handler); }
+
     // Connects to the first device found that advertises the service.
     void begin(NotifyHandler onNotify);
 
@@ -63,6 +68,7 @@ class BleLink {
     NimBLEUUID service_;
     NimBLEUUID characteristic_;
     NotifyHandler onNotify_;
+    ConnectHandler onConnect_;
     std::vector<Optional> optional_;  // filled before begin(), read-only after
     std::string deviceName_;
 

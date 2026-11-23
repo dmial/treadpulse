@@ -2,7 +2,8 @@
 //
 //   PUT /walks/<walk>/<file>      Authorization: Bearer <UPLOAD_TOKEN>
 //   <walk>  e.g. 0042_2026-11-10T0815Z or 0042_nodate_9f3a1c2e
-//   <file>  samples.csv, segments.csv or summary.csv
+//   <file>  samples.csv, segments.csv, summary.csv, or strap.bin (all the
+//           heart rate strap sent: pulse, beat intervals, ECG, accelerometer)
 //
 //   PUT /logs/board.txt           the board's own log (src/board_log.h)
 //
@@ -17,10 +18,12 @@ export interface Env {
   UPLOAD_TOKEN: string;
 }
 
-const KEY = /^walks\/\d{4,}_[0-9A-Za-z_-]+\/(samples|segments|summary)\.csv$/;
-// A 3-hour walk is ~750 KB. Kept tight: R2 has no spending cap, so this bounds
-// what a leaked key could store.
-const MAX_BYTES = 4 * 1024 * 1024;
+const KEY = /^walks\/\d{4,}_[0-9A-Za-z_-]+\/((samples|segments|summary)\.csv|strap\.bin)$/;
+// Kept tight: R2 has no spending cap, so this bounds what a leaked key could
+// store. A 3-hour walk's CSV is ~750 KB; strap.bin is ~3 MB an hour and stops
+// short of the board's ~9.9 MB of walk memory.
+const MAX_CSV_BYTES = 4 * 1024 * 1024;
+const MAX_STRAP_BYTES = 12 * 1024 * 1024;
 const LOG_KEY = "logs/board.txt";
 // The board keeps at most 64 KB of log; some room above that.
 const MAX_LOG_BYTES = 256 * 1024;
@@ -34,10 +37,12 @@ export default {
     if (key === LOG_KEY) return storeLog(request, env);
     if (!KEY.test(key)) return reply(400, "unexpected path");
 
+    const binary = key.endsWith(".bin");
+    const maxBytes = binary ? MAX_STRAP_BYTES : MAX_CSV_BYTES;
     const declared = Number(request.headers.get("Content-Length") ?? "0");
-    if (declared > MAX_BYTES) return reply(413, "file too large");
+    if (declared > maxBytes) return reply(413, "file too large");
     const body = await request.arrayBuffer();
-    if (body.byteLength > MAX_BYTES) return reply(413, "file too large");
+    if (body.byteLength > maxBytes) return reply(413, "file too large");
 
     const sha256 = toHex(await crypto.subtle.digest("SHA-256", body));
     const existing = await env.WALKS.head(key);
@@ -48,7 +53,7 @@ export default {
     }
 
     await env.WALKS.put(key, body, {
-      httpMetadata: { contentType: "text/csv; charset=utf-8" },
+      httpMetadata: { contentType: binary ? "application/octet-stream" : "text/csv; charset=utf-8" },
       customMetadata: { sha256 },
     });
     return reply(201, "stored");
