@@ -68,7 +68,7 @@ python3 tools/strap_decode.py walks/0042_2026-11-10T0815Z/strap.bin
 
 It writes `pulse.csv`, `rr.csv`, `ecg.csv`, `acc.csv` and `notes.csv` next to the file and prints a summary: how many samples, their rate by the strap's clock, records lost. Every row has `uptime_ms`, the board's clock when the data arrived; `samples.csv` has the same clock in `uptime_s`, next to UTC time, which lines the two up. ECG and accelerometer rows also have `strap_ns`, the strap's own clock for each sample.
 
-With a Polar H10 the file grows by about 3 MB an hour (ECG 1.4 MB, accelerometer 1.1 MB), so about 3 hours of walking fit in the board's memory before an upload. When memory is nearly full, `strap.bin` stops, with a note in it, while the CSV files go on.
+With a Polar H10 the file grows by about 2.7 MB an hour, nearly all of it ECG and accelerometer; the pulse and beat intervals take about 50 KB an hour. The per-second log keeps room for a 12-hour walk that `strap.bin` never takes, so on an empty board a walk gets about 2 hours of ECG and accelerometer. Past that they stop, with a note in the file, while the pulse, the beat intervals and the CSV files go on for the rest of the walk, 12 hours included.
 
 The format (`lib/strap/strap_file.h`): the 8 bytes `STRAP`, 0, format version (1), 0; then one record after another, each a type (1 byte), the board's uptime in ms (4 bytes), the payload's length (2 bytes) and the payload, all little-endian. Types: 1 heart rate notification, 2 Polar data frame, 3 Polar control point reply, 16 the board's note (text: walk started, walk ended, strap connected with its battery level), 17 records lost because the board fell behind. A power loss can leave the last record cut short.
 
@@ -104,7 +104,7 @@ Each time it tries to join the network twice, 10 seconds each, and writes to its
 
 A walk goes up file by file, the summary last. Once the receiver has confirmed all its files, the board deletes the walk. In the bucket, files keep the same paths: `walks/<walk>/<file>`. After the walks, the board sends its log (below).
 
-About 9.9 MB of the board's memory is set aside for walks; an hour of walking takes about 250 KB of CSV, so roughly 40 hours fit, or about 3 hours with a Polar strap's `strap.bin`. When memory runs out, starting a new walk deletes the oldest walk that is not uploaded yet.
+About 9.9 MB of the board's memory is set aside for walks; an hour of walking takes about 250 KB of CSV, so roughly 40 hours fit, but only about 3 hours of a Polar strap's `strap.bin`. When memory runs short, starting a new walk first deletes the `strap.bin` of the oldest walks not uploaded yet, so that the new walk's per-second log has its room; those walks keep their CSV files and still upload. Only if even that is not enough does it delete the oldest walk that is not uploaded yet.
 
 The receiver (`cloud/`) only accepts writes: nothing can be read back through it. It never overwrites a stored walk file: the same file again answers "already stored" (a retried upload), a different file under the same name is refused (409). The log is the one exception: each upload replaces `logs/board.txt`.
 

@@ -28,12 +28,22 @@ constexpr const char* kLastWalkTmp = "/last_walk.tmp";
 
 // Rows reach flash in batches: a power cut loses at most this much of the log.
 constexpr uint32_t kFlushIntervalMs = 10000;
-// Below this much free space, the oldest unsent walks make room for a new one
-// (an hour of walking takes ~250 KB of CSV, plus ~3 MB of strap.bin).
+// Below this much free space, the oldest unsent walks make room for a new one.
 constexpr size_t kMinFreeBytes = 1024 * 1024;
-// strap.bin stops short of this much free space, which stays for the CSV files
-// of the walk (and the log): even a 4-hour walk's samples.csv fits.
-constexpr size_t kStrapReserveBytes = kMinFreeBytes + 512 * 1024;
+// Kept free for the per-second log of the walk in progress, ~250 KB an hour,
+// so a 12-hour walk still fits whole: strap.bin never takes it, and a new walk
+// first deletes old walks' strap.bin to have it.
+constexpr size_t kSamplesReserveBytes = 3 * 1024 * 1024;
+// The last part of strap.bin's room is for the strap's pulse and beat
+// intervals, ~50 KB an hour, so they too go on for a 12-hour walk: ECG and
+// accelerometer frames, ~2.7 MB an hour, stop short of it.
+constexpr size_t kPulseReserveBytes = 640 * 1024;
+
+size_t freeBytes() {
+    const size_t used = LittleFS.usedBytes();
+    const size_t total = LittleFS.totalBytes();
+    return total > used ? total - used : 0;
+}
 
 String timeAt(uint32_t uptimeMs) {
     return clocksync::formatUtc(clocksync::epochAtUptime(uptimeMs));
@@ -332,7 +342,18 @@ bool Storage::recoverWalk(const String& walk) {
 }
 
 void Storage::makeRoom() {
-    while (LittleFS.totalBytes() - LittleFS.usedBytes() < kMinFreeBytes) {
+    // First the strap's raw data of unsent walks, oldest first, so that the new
+    // walk's per-second log has its room: those walks keep their tables and
+    // still upload without it.
+    for (const String& w : pendingWalks()) {
+        if (freeBytes() >= kMinFreeBytes + kSamplesReserveBytes) break;
+        const String path = walkFile(w, kStrap);
+        if (!LittleFS.exists(path)) continue;
+        boardlog::printf("[fs] memory short, deleting the strap data of unsent walk %s\n", w.c_str());
+        LittleFS.remove(path);
+    }
+    // Whole walks only when even that was not enough.
+    while (freeBytes() < kMinFreeBytes) {
         const std::vector<String> walks = pendingWalks();
         if (walks.empty()) return;
         boardlog::printf("[fs] memory full, deleting unsent walk %s\n", walks.front().c_str());
@@ -539,11 +560,11 @@ std::vector<uint8_t> Storage::readLastWalk() {
 }
 
 void Storage::openStrap(uint32_t now) {
-    const size_t used = LittleFS.usedBytes();
-    const size_t total = LittleFS.totalBytes();
-    const size_t free = total > used ? total - used : 0;
-    strapRoom_ = free > kStrapReserveBytes ? free - kStrapReserveBytes : 0;
+    const size_t free = freeBytes();
+    const size_t reserve = kMinFreeBytes + kSamplesReserveBytes;
+    strapRoom_ = free > reserve ? free - reserve : 0;
     strapBytes_ = 0;
+    strapFramesFull_ = false;
     strapFull_ = false;
     strapTailEndMs_.reset();
 
@@ -582,8 +603,20 @@ void Storage::strapNote(uint32_t uptimeMs, const char* text) {
 }
 
 void Storage::appendStrap(const uint8_t* record, size_t len) {
-    if (!strapRecording()) return;
-    if (strapBytes_ + len > strapRoom_) {
+    if (!strapRecording() || len == 0) return;
+    const bool frame = record[0] == static_cast<uint8_t>(strap::RecordType::PmdData);
+    if (frame) {
+        const size_t room = strapRoom_ > kPulseReserveBytes ? strapRoom_ - kPulseReserveBytes : 0;
+        if (strapBytes_ + len > room) {
+            if (!strapFramesFull_) {
+                strapFramesFull_ = true;
+                strapNote(millis(), "memory nearly full: ECG and accelerometer stop here");
+                boardlog::printf("[fs] walk %s: memory nearly full, ECG and accelerometer stop at %u KB\n",
+                                 strapWalk_.c_str(), static_cast<unsigned>(strapBytes_ / 1024));
+            }
+            return;
+        }
+    } else if (strapBytes_ + len > strapRoom_) {
         if (!strapFull_) {
             strapFull_ = true;
             strapNote(millis(), "memory nearly full: the strap's data stops here");

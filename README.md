@@ -48,7 +48,7 @@ A big, glanceable second screen for your treadmill: walking time, a daily goal r
 ## How it works
 
 - **Bluetooth in.** The board connects to the first treadmill and the first heart rate strap it finds. Nothing to pair.
-- **No SD card.** Walks are written to the board's own memory: about 40 hours of walking fit, or about 3 hours with a Polar strap's ECG and accelerometer, which is plenty when walks upload after each one.
+- **No SD card.** Walks are written to the board's own memory: about 40 hours of walking fit, which is plenty when walks upload after each one. A Polar strap's ECG and accelerometer take more: about 2 hours of them per walk, while its pulse and the walk's own log go on for the whole of even a 12-hour walk.
 - **Wi-Fi only between walks**, because it shares the radio with Bluetooth: at power-on and after each walk, to set the clock and upload walks.
 - **Your own cloud, optional.** A tiny Cloudflare Worker stores walk files in your R2 bucket. The free tier (10 GB) is plenty: a year of hour-long daily walks is about 90 MB, or about 1.1 GB with a Polar strap's full data.
 

@@ -66,8 +66,10 @@ class Storage {
     bool strapTail() const { return strapRecording() && strapTailEndMs_.has_value(); }
     // How much longer that may go on at most; 0 when it is not on.
     uint32_t strapTailLeftMs(uint32_t now) const;
-    // One record encoded as in strap_file.h. Stops, with a note, when the
-    // file reaches the room it got at the walk's start.
+    // One record encoded as in strap_file.h. The file gets its room at the
+    // walk's start, past what the per-second log of a long walk needs: ECG and
+    // accelerometer frames stop first, with a note, so the pulse and beat
+    // intervals go on to the end of that room.
     void appendStrap(const uint8_t* record, size_t len);
     // Closes a finished walk's strap.bin once the strap is off (`strapOff`: no
     // pulse for a while) or kStrapTailMs is up; the walk is complete from then
@@ -158,6 +160,7 @@ class Storage {
     std::optional<uint32_t> strapTailEndMs_;  // once its walk has ended
     size_t strapRoom_ = 0;   // bytes it may take, from the free space at walk start
     size_t strapBytes_ = 0;  // written so far
+    bool strapFramesFull_ = false;  // ECG and accelerometer stopped, the rest goes on
     bool strapFull_ = false;
     uint32_t lastStrapFlushMs_ = 0;
 };
