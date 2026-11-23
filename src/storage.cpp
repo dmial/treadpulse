@@ -48,6 +48,29 @@ std::vector<String> listDir(const String& path, bool wantDirs) {
     return names;
 }
 
+// Moves `from` over `to`, which may already exist.
+bool moveOver(const String& from, const String& to) {
+    if (LittleFS.rename(from, to)) return true;
+    LittleFS.remove(to);
+    return LittleFS.rename(from, to);
+}
+
+// Writes `lines` over `path` through a temporary file next to it, so a power
+// cut leaves the old file or the new one, never half of one.
+bool writeOver(const String& path, const std::vector<std::string>& lines) {
+    const String tmp = path + ".tmp";
+    File f = LittleFS.open(tmp, FILE_WRITE);
+    if (!f) return false;
+    bool written = true;
+    for (const std::string& line : lines) {
+        written = written && f.println(line.c_str()) == line.size() + 2;
+    }
+    f.close();
+    if (written && moveOver(tmp, path)) return true;
+    LittleFS.remove(tmp);
+    return false;
+}
+
 // Next walk number. Kept in NVS so it keeps counting after uploaded walks are
 // deleted from flash.
 int takeWalkId() {
@@ -106,7 +129,101 @@ void Storage::removeWalk(const String& walk) {
     const String dir = walkDir(walk);
     for (const String& f : listDir(dir, false)) LittleFS.remove(dir + "/" + f);
     LittleFS.rmdir(dir);
+    forgetUndated(walk);
     pendingCount_ = static_cast<int>(pendingWalks().size());
+}
+
+Storage::UndatedWalk* Storage::undatedWalk(const String& walk) {
+    for (UndatedWalk& w : undated_) {
+        if (w.name == walk) return &w;
+    }
+    return nullptr;
+}
+
+void Storage::forgetUndated(const String& walk) {
+    undated_.erase(std::remove_if(undated_.begin(), undated_.end(),
+                                  [&walk](const UndatedWalk& w) { return w.name == walk; }),
+                   undated_.end());
+}
+
+bool Storage::waitsForClock(const String& walk) const {
+    return std::any_of(undated_.begin(), undated_.end(),
+                       [&walk](const UndatedWalk& w) { return w.name == walk; });
+}
+
+int Storage::dateWalks() {
+    if (!ok_ || undated_.empty() || !clocksync::isSynced()) return 0;
+    const int64_t offsetS = static_cast<int64_t>(clocksync::epochAtUptime(0));  // UTC minus uptime
+    int dated = 0;
+    std::vector<UndatedWalk> recording;
+    for (UndatedWalk& w : undated_) {
+        if (!w.summary) {
+            recording.push_back(std::move(w));  // dated once it is finished
+            continue;
+        }
+        if (dateWalk(w, offsetS)) ++dated;
+    }
+    // One that could not be dated uploads as it is rather than wait for good.
+    undated_.swap(recording);
+    return dated;
+}
+
+bool Storage::dateWalk(const UndatedWalk& w, int64_t offsetS) {
+    const auto timeAtUptime = [offsetS](uint32_t uptimeMs) {
+        return walk::formatUtcTime(offsetS + uptimeMs / 1000);
+    };
+
+    // The per-second log line by line, through a temporary file: an hour of
+    // walking is ~250 KB, too much to hold at once.
+    const String samples = walkFile(w.name, kSamples);
+    const String samplesTmp = samples + ".tmp";
+    File in = LittleFS.open(samples, FILE_READ);
+    File out = LittleFS.open(samplesTmp, FILE_WRITE);
+    bool written = in && out;
+    while (written && in.available()) {
+        String line = in.readStringUntil('\n');
+        if (line.endsWith("\r")) line.remove(line.length() - 1);
+        const std::string dated = walk::datedSampleLine(line.c_str(), offsetS);
+        written = out.println(dated.c_str()) == dated.size() + 2;
+    }
+    if (in) in.close();
+    if (out) out.close();
+    if (!written || !moveOver(samplesTmp, samples)) {
+        LittleFS.remove(samplesTmp);
+        boardlog::printf("[fs] walk %s: cannot date its log, uploads without dates\n", w.name.c_str());
+        return false;
+    }
+
+    // The segments and summary as they would have been written with a clock.
+    // A power cut here leaves the summary either undated or dated; should it
+    // leave none, the next boot rebuilds it from the log, now dated.
+    std::vector<std::string> segments{walk::kSegmentsHeader};
+    for (const walk::Segment& s : w.segments) {
+        segments.push_back(walk::formatSegmentRow(s, timeAtUptime(s.startMs), timeAtUptime(s.endMs)));
+    }
+    const walk::Summary& sum = *w.summary;
+    const std::vector<std::string> summary{
+        walk::kSummaryHeader,
+        walk::formatSummaryRow(w.id, sum, timeAtUptime(sum.startMs), timeAtUptime(sum.endMs), false)};
+    if (!writeOver(walkFile(w.name, kSegments), segments) ||
+        !writeOver(walkFile(w.name, kSummary), summary)) {
+        boardlog::printf("[fs] walk %s: cannot date its segments or summary\n", w.name.c_str());
+        return false;
+    }
+
+    // Renamed last: a power cut before this leaves the walk under its undated
+    // name, with the times it already has.
+    char name[48];
+    snprintf(name, sizeof(name), "%04d_%s", w.id,
+             clocksync::formatUtc(static_cast<time_t>(offsetS + w.startUptimeMs / 1000),
+                                  "%Y-%m-%dT%H%MZ")
+                 .c_str());
+    if (!LittleFS.rename(walkDir(w.name), walkDir(name))) {
+        boardlog::printf("[fs] walk %s dated, but cannot be renamed to %s\n", w.name.c_str(), name);
+        return true;
+    }
+    boardlog::printf("[fs] walk %s dated: %s\n", w.name.c_str(), name);
+    return true;
 }
 
 int Storage::recoverUnfinishedWalks() {
@@ -207,7 +324,8 @@ void Storage::startWalk(uint32_t startUptimeMs) {
     walkId_ = takeWalkId();
 
     String date = clocksync::formatUtc(clocksync::epochAtUptime(startUptimeMs), "%Y-%m-%dT%H%MZ");
-    if (date.isEmpty()) {
+    const bool hasDate = !date.isEmpty();
+    if (!hasDate) {
         char tail[24];
         snprintf(tail, sizeof(tail), "nodate_%08lx", static_cast<unsigned long>(esp_random()));
         date = tail;
@@ -224,6 +342,13 @@ void Storage::startWalk(uint32_t startUptimeMs) {
     lastFlushMs_ = startUptimeMs;
 
     if (!appendLine(walkFile(walk_, kSegments), walk::kSegmentsHeader, "")) return;
+    if (!hasDate) {
+        UndatedWalk u;
+        u.name = walk_;
+        u.id = walkId_;
+        u.startUptimeMs = startUptimeMs;
+        undated_.push_back(std::move(u));
+    }
     boardlog::printf("[fs] walk %s started\n", walk_.c_str());
 }
 
@@ -240,6 +365,7 @@ void Storage::appendSegment(const walk::Segment& s) {
     if (!ok_ || walk_.isEmpty()) return;
     appendLine(walkFile(walk_, kSegments), walk::kSegmentsHeader,
                fromStd(walk::formatSegmentRow(s, timeAt(s.startMs).c_str(), timeAt(s.endMs).c_str())));
+    if (UndatedWalk* u = undatedWalk(walk_)) u->segments.push_back(s);
 }
 
 void Storage::finishWalk(const walk::Summary& sum) {
@@ -252,6 +378,7 @@ void Storage::finishWalk(const walk::Summary& sum) {
                                                            timeAt(sum.endMs).c_str(), false)))) {
         return;
     }
+    if (UndatedWalk* u = undatedWalk(walk)) u->summary = sum;
     pendingCount_ = static_cast<int>(pendingWalks().size());
     boardlog::printf("[fs] walk %s finished: %s, %.0f m\n", walk.c_str(),
                      walk::formatHms(sum.walkSeconds()).c_str(), sum.distanceM);
@@ -320,9 +447,7 @@ bool Storage::replaceFile(const char* path, const char* tmpPath, const String& c
         LittleFS.remove(tmpPath);
         return false;
     }
-    if (LittleFS.rename(tmpPath, path)) return true;
-    LittleFS.remove(path);
-    return LittleFS.rename(tmpPath, path);
+    return moveOver(tmpPath, path);
 }
 
 String Storage::readDayLog() { return readFile(kDayLog); }

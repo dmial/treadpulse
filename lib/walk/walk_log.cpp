@@ -231,6 +231,13 @@ std::optional<LoggedRow> parseSampleRow(const std::string& rawLine) {
     return out;
 }
 
+std::string datedSampleLine(const std::string& line, int64_t offsetS) {
+    const std::optional<LoggedRow> logged = parseSampleRow(line);
+    if (!logged || !logged->time.empty()) return line;
+    // Without a time the line starts with the comma before the uptime.
+    return formatUtcTime(static_cast<int64_t>(logged->row.uptimeMs / 1000) + offsetS) + line;
+}
+
 void WalkReplay::add(const LoggedRow& logged) {
     noteClock(logged);
     if (summary_) return;  // the walk already ended; later rows are not part of it

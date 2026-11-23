@@ -97,6 +97,10 @@ Result sendPending(Storage& storage, uint32_t budgetMs) {
     const uint32_t start = millis();
     for (const String& walk : storage.pendingWalks()) {
         if (millis() - start >= budgetMs) break;
+        if (storage.waitsForClock(walk)) {
+            boardlog::printf("[upload] walk %s waits for the clock\n", walk.c_str());
+            continue;
+        }
 
         bool walkOk = true;
         for (const char* file : Storage::kWalkFiles) {

@@ -14,7 +14,7 @@ Each walk is a folder in the board's memory:
 /walks/0042_2026-11-10T0815Z/summary.csv    written when the walk ends
 ```
 
-The folder name is the walk number and its start time in UTC. The number keeps growing across uploads and reflashes. If the board didn't know the time when the walk started, the date is replaced by `nodate` and a random tail: `0042_nodate_9f3a1c2e`.
+The folder name is the walk number and its start time in UTC. The number keeps growing across uploads and reflashes. If the board didn't know the time when the walk started, the date is replaced by `nodate` and a random tail: `0042_nodate_9f3a1c2e`. Such a walk waits for the clock before it uploads: once the board sets its clock, it works out the walk's times from the time since power-on, fills them into all three files and renames the folder after the start, so the walk reaches the cloud dated. The time since power-on only dates a walk until the power goes: a walk from a power-on that never got the clock stays `nodate`, and uploads as it is after the next start.
 
 **All times in the files are UTC**, e.g. `2026-11-10T08:15:23Z`. Only the clock on the screen uses the local time zone.
 

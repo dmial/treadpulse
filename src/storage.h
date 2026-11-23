@@ -9,7 +9,8 @@
 //
 // <walk> is "0042_2026-11-10T0815Z": a running number kept in NVS (it survives
 // uploads and reflashing) and the start time in UTC. Without a clock it is
-// "0042_nodate_9f3a1c2e", with a random tail so it stays unique in the cloud.
+// "0042_nodate_9f3a1c2e", with a random tail so it stays unique in the cloud,
+// until the clock gets set in the same boot (dateWalks()).
 // All times in the files are UTC.
 #pragma once
 
@@ -17,6 +18,7 @@
 #include <FS.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -47,6 +49,17 @@ class Storage {
     // deletes its files and gives its number back.
     void discardWalk();
 
+    // A walk begun before the clock was set gets its times once the clock is
+    // set: the time in every line of its log, its segments and summary written
+    // again with theirs, and its folder renamed after its start. The uptime
+    // dates it only until the power goes, so a walk of an earlier boot stays
+    // undated. Call once the clock is set, before uploading. Returns the count
+    // dated.
+    int dateWalks();
+    // A walk of this boot still without its times: held back from upload, so
+    // it reaches the cloud dated.
+    bool waitsForClock(const String& walk) const;
+
     // Finished walks waiting for upload, oldest first.
     std::vector<String> pendingWalks();
     int pendingCount() const { return pendingCount_; }
@@ -70,8 +83,21 @@ class Storage {
     void writeHistory(const String& csv);
 
    private:
+    // A walk of this boot begun before the clock was set, as recorded live,
+    // to be written again with its times (dateWalks()).
+    struct UndatedWalk {
+        String name;
+        int id = 0;
+        uint32_t startUptimeMs = 0;
+        std::vector<walk::Segment> segments;
+        std::optional<walk::Summary> summary;  // once the walk is finished
+    };
+
     bool isFinished(const String& walk);
     bool recoverWalk(const String& walk);
+    bool dateWalk(const UndatedWalk& w, int64_t offsetS);
+    UndatedWalk* undatedWalk(const String& walk);
+    void forgetUndated(const String& walk);
     void makeRoom();
     bool writeSummary(const String& walk, const String& row);
     bool appendLine(const String& path, const String& header, const String& line);
@@ -85,4 +111,5 @@ class Storage {
     String walk_;  // the walk being recorded, "" between walks
     File samples_;
     uint32_t lastFlushMs_ = 0;
+    std::vector<UndatedWalk> undated_;
 };

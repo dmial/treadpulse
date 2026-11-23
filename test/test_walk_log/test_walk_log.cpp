@@ -231,6 +231,32 @@ void test_header_and_damaged_lines_are_rejected() {
     TEST_ASSERT_FALSE(walk::parseSampleRow(std::string(40, '\0')).has_value());
 }
 
+// A walk logged before the clock was set gets its times once it is: uptime
+// 125 s with the clock saying 10:00:05 at that moment.
+void test_undated_line_gets_its_time_and_nothing_else() {
+    const int64_t offsetS = *walk::parseUtcTime("2026-11-11T10:00:05Z") - 125;
+    TEST_ASSERT_EQUAL_STRING(
+        "2026-11-11T10:00:05Z,125,walk,98,4.5,2.0,123.4,2500,1800,131,171",
+        walk::datedSampleLine(",125,walk,98,4.5,2.0,123.4,2500,1800,131,171", offsetS).c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "2026-11-11T10:01:05Z,185,no_data,0,0.0,0.0,0.0,,,,",
+        walk::datedSampleLine(",185,no_data,0,0.0,0.0,0.0,,,,", offsetS).c_str());
+    // A line from before steps were counted keeps its one column less.
+    TEST_ASSERT_EQUAL_STRING(
+        "2026-11-11T10:00:06Z,126,walk,99,4.5,2.0,124.6,2501,1801,131",
+        walk::datedSampleLine(",126,walk,99,4.5,2.0,124.6,2501,1801,131", offsetS).c_str());
+}
+
+void test_dated_header_and_damaged_lines_stay_as_they_are() {
+    const int64_t offsetS = 1'800'000'000;
+    const std::string dated = "2026-11-11T10:00:05Z,125,walk,98,4.5,2.0,123.4,2500,1800,131,171";
+    TEST_ASSERT_EQUAL_STRING(dated.c_str(), walk::datedSampleLine(dated, offsetS).c_str());
+    TEST_ASSERT_EQUAL_STRING(walk::kSamplesHeader,
+                             walk::datedSampleLine(walk::kSamplesHeader, offsetS).c_str());
+    TEST_ASSERT_EQUAL_STRING(",125,wa", walk::datedSampleLine(",125,wa", offsetS).c_str());
+    TEST_ASSERT_EQUAL_STRING("", walk::datedSampleLine("", offsetS).c_str());
+}
+
 void test_cut_while_walking_rebuilds_the_walk() {
     LiveWalk live;
     Treadmill mill;
@@ -389,6 +415,8 @@ int main(int, char**) {
     RUN_TEST(test_row_without_clock_and_optional_values);
     RUN_TEST(test_row_from_before_steps_is_read);
     RUN_TEST(test_header_and_damaged_lines_are_rejected);
+    RUN_TEST(test_undated_line_gets_its_time_and_nothing_else);
+    RUN_TEST(test_dated_header_and_damaged_lines_stay_as_they_are);
     RUN_TEST(test_cut_while_walking_rebuilds_the_walk);
     RUN_TEST(test_replay_counts_pulse_zones_as_live);
     RUN_TEST(test_cut_after_stopping_drops_the_trailing_pause);

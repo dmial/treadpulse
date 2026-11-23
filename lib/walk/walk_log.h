@@ -57,6 +57,12 @@ std::string formatSampleRow(const SampleRow& r, const std::string& time);
 // line (e.g. half-written when the power went out).
 std::optional<LoggedRow> parseSampleRow(const std::string& line);
 
+// A line logged while the clock was not set, with its time put in front:
+// `offsetS` is UTC minus uptime, in seconds, and the rest of the line stays
+// exactly as it was. The header, a damaged line and a line that already has
+// its time come back unchanged.
+std::string datedSampleLine(const std::string& line, int64_t offsetS);
+
 struct ReplayResult {
     std::vector<Segment> segments;
     std::optional<Summary> summary;  // empty when the log holds no walking at all

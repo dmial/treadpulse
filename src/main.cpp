@@ -256,6 +256,9 @@ void netSession(uint32_t uploadBudgetMs, const char* why) {
     }
 
     if (clockDue(millis()) && clocksync::syncNtp(kNtpTimeoutMs)) lastClockSyncMs = millis();
+    // Walks of this boot begun before the clock get their times before they
+    // go to the cloud; without the clock they wait (Storage::waitsForClock).
+    storage.dateWalks();
 
     bool uploadFailed = false;
     if (pending > 0) {
