@@ -84,6 +84,7 @@ Events WalkTracker::tick(const Sample& s) {
 
     if (s.treadmillStopped) stopReportMs_ = s.uptimeMs;
     if (a == Activity::Walk) {
+        beltStoppedMs_.reset();
         walkMs_ += dtMs;
         if (s.heartRateBpm) {
             pulseMs_ += dtMs;
@@ -94,6 +95,8 @@ Events WalkTracker::tick(const Sample& s) {
         maxSpeedKmh_ = std::max(maxSpeedKmh_, s.speedKmh);
         maxInclinePct_ = std::max(maxInclinePct_, s.inclinePct);
     }
+    // No data says nothing about the belt: what it last read stays.
+    if (a == Activity::Pause && !beltStoppedMs_) beltStoppedMs_ = s.uptimeMs;
     if (a == Activity::NoData) gapSinceLastElapsed_ = true;
     if (a == Activity::Walk) walkHeartRate_.add(s.heartRateBpm);
 
@@ -119,6 +122,7 @@ void WalkTracker::startSession(const Sample& s, Events& ev) {
     segmentCount_ = 0;
     lastWalkMs_ = s.uptimeMs;
     stopReportMs_.reset();
+    beltStoppedMs_.reset();
     walkHeartRate_ = HeartRateStats{};
     walkHeartRate_.add(s.heartRateBpm);
     pulseMs_ = 0;

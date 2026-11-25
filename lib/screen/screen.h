@@ -52,9 +52,9 @@ struct Model {
     int pendingWalks = 0;
     NetProblem netProblem = NetProblem::None;
     std::string nextTry;  // next time online, "18:15" or "in 1 min"; "" during a walk
-    // After the belt stops the walk still records the pulse coming down, until
-    // the strap is off: seconds left at most; -1 when nothing is recording.
-    int strapTailLeftS = -1;
+    // After the belt stops (pause or stop) the pulse coming down is recorded
+    // for a while, standing still: seconds left; -1 when that is not on.
+    int afterStopLeftS = -1;
     std::string clock;  // "14:32", "" while the clock is not set
 
     // From the treadmill; gray while its link is down

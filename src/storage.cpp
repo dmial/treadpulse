@@ -420,11 +420,12 @@ void Storage::finishWalk(const walk::Summary& sum) {
 
     const String walk = walk_;
     walk_ = "";
-    // strap.bin goes on for a while: the pulse coming down after the walk.
+    // strap.bin goes on for a while: the pulse coming down after the walk,
+    // timed from the belt stopping (the walk's end if it was not seen to).
     if (strapWalk_ == walk) {
-        const uint32_t now = millis();
-        strapNote(now, "walk ended");
-        strapTailEndMs_ = now + kStrapTailMs;
+        strapNote(millis(), "walk ended");
+        strapAfterWalk_ = true;
+        if (!beltStoppedMs_) beltStoppedMs_ = sum.endMs;
     }
     if (!writeSummary(walk, fromStd(walk::formatSummaryRow(walkId_, sum, timeAt(sum.startMs).c_str(),
                                                            timeAt(sum.endMs).c_str(), false)))) {
@@ -566,7 +567,9 @@ void Storage::openStrap(uint32_t now) {
     strapBytes_ = 0;
     strapFramesFull_ = false;
     strapFull_ = false;
-    strapTailEndMs_.reset();
+    strapAfterWalk_ = false;
+    beltStoppedMs_.reset();
+    strapHeld_ = false;
 
     // A walk without strap.bin is still a whole walk: no fail().
     strap_ = LittleFS.open(walkFile(walk_, kStrap), FILE_WRITE);
@@ -633,17 +636,42 @@ void Storage::appendStrap(const uint8_t* record, size_t len) {
     }
 }
 
-uint32_t Storage::strapTailLeftMs(uint32_t now) const {
-    if (!strapTail()) return 0;
-    const int32_t left = static_cast<int32_t>(*strapTailEndMs_ - now);
-    return left > 0 ? static_cast<uint32_t>(left) : 0;
+bool Storage::strapStillTooLong(uint32_t now) const {
+    // Signed: the belt's time may come from a tick just after `now`.
+    return beltStoppedMs_ &&
+           static_cast<int32_t>(now - *beltStoppedMs_) >= static_cast<int32_t>(kStrapAfterStopMs);
+}
+
+std::optional<uint32_t> Storage::strapAfterStopLeftMs(uint32_t now) const {
+    if (!strapWriting(now) || !beltStoppedMs_) return std::nullopt;
+    const int32_t left = static_cast<int32_t>(*beltStoppedMs_ + kStrapAfterStopMs - now);
+    return static_cast<uint32_t>(std::min<int32_t>(left, kStrapAfterStopMs));
+}
+
+void Storage::trackBelt(uint32_t now, std::optional<uint32_t> stoppedMs) {
+    if (!strapRecording() || strapAfterWalk_) return;
+    if (stoppedMs) {
+        if (!beltStoppedMs_) strapNote(*stoppedMs, "belt stopped");
+        beltStoppedMs_ = stoppedMs;
+        if (!strapHeld_ && strapStillTooLong(now)) {
+            strapHeld_ = true;
+            strapNote(now, "belt still for 2 min: the strap's data waits until it moves");
+            boardlog::printf("[fs] walk %s: belt still for 2 min, strap.bin waits\n", strapWalk_.c_str());
+        }
+    } else if (beltStoppedMs_) {
+        // Held data comes in from a minute back (the strap's queue), after this note.
+        strapNote(now, strapHeld_ ? "belt moving again: the strap's data goes on from a minute back"
+                                  : "belt moving again");
+        beltStoppedMs_.reset();
+        strapHeld_ = false;
+    }
 }
 
 void Storage::tickStrap(uint32_t now, bool strapOff) {
     if (!strapTail()) return;
     if (strapOff) {
         closeStrap(now, "after-walk recording ended: strap off");
-    } else if (static_cast<int32_t>(now - *strapTailEndMs_) >= 0) {
+    } else if (strapStillTooLong(now)) {
         closeStrap(now, "after-walk recording ended: time up");
     }
 }
@@ -661,7 +689,9 @@ void Storage::closeStrap(uint32_t now, const char* why) {
 void Storage::dropStrap() {
     if (strap_) strap_.close();
     strapWalk_ = "";
-    strapTailEndMs_.reset();
+    strapAfterWalk_ = false;
+    beltStoppedMs_.reset();
+    strapHeld_ = false;
 }
 
 void Storage::fail(const char* what) {

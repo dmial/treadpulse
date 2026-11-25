@@ -152,6 +152,12 @@ class WalkTracker {
     std::array<uint32_t, pulse::kZoneCount + 1> zoneSeconds() const;
     Activity lastActivity() const { return lastActivity_; }
     uint32_t sessionStartMs() const { return sessionStartMs_; }
+    // During a walk, since when the belt has stood still (the first second it
+    // read stopped); empty while it moves, between walks, and while the link is
+    // down after the belt was last seen moving (its state is unknown then).
+    std::optional<uint32_t> beltStoppedMs() const {
+        return inSession_ ? beltStoppedMs_ : std::nullopt;
+    }
 
    private:
     struct Key {
@@ -198,6 +204,7 @@ class WalkTracker {
     std::optional<uint32_t> lastTickMs_;
     uint32_t lastWalkMs_ = 0;
     std::optional<uint32_t> stopReportMs_;  // when the treadmill last reported a stop
+    std::optional<uint32_t> beltStoppedMs_;
 
     uint32_t walkMs_ = 0;
     float distanceM_ = 0.0f;

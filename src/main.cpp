@@ -396,9 +396,12 @@ void tick(uint32_t now) {
         }
         saveDay(nullptr);  // also drops the walk if it was saved as in progress
     }
-    // Everything the strap sent goes to the walk's strap.bin while one is open;
-    // between walks only the last minute waits in memory for the next one.
-    heartRate.drainRecords(now, storage.strapRecording(),
+    // Everything the strap sent goes to the walk's strap.bin, up to two minutes
+    // after the belt stops (Storage::kStrapAfterStopMs), pause or stop alike;
+    // otherwise only the last minute waits in memory, for the next walk or for
+    // the belt moving again.
+    if (tracker.inSession()) storage.trackBelt(now, tracker.beltStoppedMs());
+    heartRate.drainRecords(now, storage.strapWriting(now),
                            [](const uint8_t* record, size_t len) { storage.appendStrap(record, len); });
     // Signed: the strap's task may have stamped a reading just after `now`.
     const bool strapOff =
@@ -429,8 +432,9 @@ void tick(uint32_t now) {
     m.walkZoneSeconds = tracker.inSession() ? tracker.zoneSeconds() : keptWalkZones;
     // The walk is not over while the pulse coming down still goes to it.
     m.walking = tracker.inSession() || storage.strapTail();
-    m.strapTailLeftS =
-        storage.strapTail() ? static_cast<int>((storage.strapTailLeftMs(now) + 999) / 1000) : -1;
+    // How long to stand still yet: only with the strap on.
+    const std::optional<uint32_t> afterStopLeftMs = storage.strapAfterStopLeftMs(now);
+    m.afterStopLeftS = afterStopLeftMs && !strapOff ? static_cast<int>((*afterStopLeftMs + 999) / 1000) : -1;
     m.pulseUp = heartRateUp;
     m.bpm = hr.bpm;
     m.goalSeconds = dailyGoalSeconds();

@@ -5,9 +5,9 @@
 //   /walks/<walk>/summary.csv   header + one row; written last, so a walk is
 //                               finished (and ready to upload) once it exists
 //   /walks/<walk>/strap.bin     everything the heart rate strap sent, from the
-//                               minute before the walk until the strap comes
-//                               off after it, kStrapTailMs at most
-//                               (lib/strap/strap_file.h)
+//                               minute before the walk to kStrapAfterStopMs
+//                               after the belt stops, or the strap comes off
+//                               after the walk (lib/strap/strap_file.h)
 //   /history.csv                every kept walk, one line each (archive.h);
 //                               stays on the board after the walk is uploaded
 //
@@ -37,10 +37,12 @@ class Storage {
     static constexpr const char* kWalkFiles[] = {"samples.csv", "segments.csv", "strap.bin",
                                                  "summary.csv"};
 
-    // After the walk ends the strap's data goes on into strap.bin, to catch the
-    // pulse coming down, until the strap is off and at most this long. Till then
-    // the walk is not complete: not pending, not uploaded.
-    static constexpr uint32_t kStrapTailMs = 2 * 60 * 1000;
+    // Once the belt stops the strap's data goes on into strap.bin this long, to
+    // catch the pulse coming down while standing still, and then stops: in a
+    // pause until the belt moves again, after the walk for good (sooner if the
+    // strap comes off). Till then a finished walk is not complete: not pending,
+    // not uploaded.
+    static constexpr uint32_t kStrapAfterStopMs = 2 * 60 * 1000;
 
     bool begin();
     bool ok() const { return ok_; }
@@ -60,20 +62,29 @@ class Storage {
     void discardWalk();
 
     // strap.bin of the walk in progress, or of the one that just ended, is
-    // open: appendStrap() writes to it.
+    // open.
     bool strapRecording() const { return !strapWalk_.isEmpty(); }
     // The walk has ended but its strap.bin is still recording.
-    bool strapTail() const { return strapRecording() && strapTailEndMs_.has_value(); }
-    // How much longer that may go on at most; 0 when it is not on.
-    uint32_t strapTailLeftMs(uint32_t now) const;
+    bool strapTail() const { return strapRecording() && strapAfterWalk_; }
+    // strap.bin takes the strap's data now: open, and not yet kStrapAfterStopMs
+    // past the belt stopping. Otherwise the data waits in the strap's queue,
+    // whose last minute comes in once the belt moves again.
+    bool strapWriting(uint32_t now) const { return strapRecording() && !strapStillTooLong(now); }
+    // Left of those kStrapAfterStopMs while the belt stands and strap.bin takes
+    // the data, for the countdown on screen; empty otherwise.
+    std::optional<uint32_t> strapAfterStopLeftMs(uint32_t now) const;
+    // The belt of the walk in progress: standing since `stoppedMs`, or moving
+    // (empty; tracker.beltStoppedMs()). Notes its changes in strap.bin. Call
+    // every tick of a walk, before the strap's data goes in.
+    void trackBelt(uint32_t now, std::optional<uint32_t> stoppedMs);
     // One record encoded as in strap_file.h. The file gets its room at the
     // walk's start, past what the per-second log of a long walk needs: ECG and
     // accelerometer frames stop first, with a note, so the pulse and beat
     // intervals go on to the end of that room.
     void appendStrap(const uint8_t* record, size_t len);
     // Closes a finished walk's strap.bin once the strap is off (`strapOff`: no
-    // pulse for a while) or kStrapTailMs is up; the walk is complete from then
-    // on. Call every tick.
+    // pulse for a while) or kStrapAfterStopMs is up; the walk is complete from
+    // then on. Call every tick.
     void tickStrap(uint32_t now, bool strapOff);
 
     // A walk begun before the clock was set gets its times once the clock is
@@ -139,6 +150,7 @@ class Storage {
     void fail(const char* what);
 
     void openStrap(uint32_t now);
+    bool strapStillTooLong(uint32_t now) const;
     bool writeStrap(const uint8_t* data, size_t len);
     void strapNote(uint32_t uptimeMs, const char* text);
     // Writes `why` as the last note, closes the file and lets its walk upload.
@@ -157,7 +169,10 @@ class Storage {
 
     File strap_;
     String strapWalk_;  // the walk whose strap.bin is open, "" when none is
-    std::optional<uint32_t> strapTailEndMs_;  // once its walk has ended
+    bool strapAfterWalk_ = false;  // its walk has ended
+    // Since when the belt has stood still: in the walk, or where it ended.
+    std::optional<uint32_t> beltStoppedMs_;
+    bool strapHeld_ = false;  // the belt stood too long: noted, data held off
     size_t strapRoom_ = 0;   // bytes it may take, from the free space at walk start
     size_t strapBytes_ = 0;  // written so far
     bool strapFramesFull_ = false;  // ECG and accelerometer stopped, the rest goes on

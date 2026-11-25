@@ -335,6 +335,44 @@ void test_stop_report_while_belt_keeps_moving_is_dropped() {
     TEST_ASSERT_TRUE(r.tracker.inSession());
 }
 
+// The after-walk pulse is timed from the belt stopping, pause or stop alike.
+void test_belt_stop_time_while_it_stands() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return at(t, 3.0f); });
+    TEST_ASSERT_FALSE(r.tracker.beltStoppedMs().has_value());
+
+    r.span(101, 200, [](uint32_t t) { return at(t, 0.0f); });
+    TEST_ASSERT_TRUE(r.tracker.beltStoppedMs().has_value());
+    TEST_ASSERT_EQUAL_UINT32(101000, *r.tracker.beltStoppedMs());
+
+    // The link going down while it stands keeps the time.
+    r.span(201, 230, [](uint32_t t) { return at(t, 0.0f, 0.0f, /*fresh=*/false); });
+    TEST_ASSERT_EQUAL_UINT32(101000, *r.tracker.beltStoppedMs());
+
+    r.feed(at(231, 3.0f));
+    TEST_ASSERT_FALSE(r.tracker.beltStoppedMs().has_value());
+
+    // A stop ends the walk: no belt time between walks.
+    r.span(232, 240, [](uint32_t t) { return at(t, 0.0f); });
+    Sample stop = at(241, 0.0f);
+    stop.treadmillStopped = true;
+    r.feed(stop);
+    TEST_ASSERT_FALSE(r.tracker.inSession());
+    TEST_ASSERT_FALSE(r.tracker.beltStoppedMs().has_value());
+}
+
+void test_link_drop_while_walking_leaves_belt_unknown() {
+    Run r;
+    r.span(0, 100, [](uint32_t t) { return at(t, 3.0f); });
+    r.span(101, 200, [](uint32_t t) { return at(t, 0.0f, 0.0f, /*fresh=*/false); });
+    TEST_ASSERT_TRUE(r.tracker.inSession());
+    TEST_ASSERT_FALSE(r.tracker.beltStoppedMs().has_value());
+
+    // Back with the belt standing: timed from when it is seen so.
+    r.span(201, 210, [](uint32_t t) { return at(t, 0.0f); });
+    TEST_ASSERT_EQUAL_UINT32(201000, *r.tracker.beltStoppedMs());
+}
+
 void test_walk_under_a_minute_is_not_worth_keeping() {
     walk::Summary sum;
     sum.walkMs = 59000;
@@ -577,6 +615,8 @@ int main(int, char**) {
     RUN_TEST(test_reported_stop_ends_walk_right_away);
     RUN_TEST(test_stop_reported_just_before_the_belt_stops);
     RUN_TEST(test_stop_report_while_belt_keeps_moving_is_dropped);
+    RUN_TEST(test_belt_stop_time_while_it_stands);
+    RUN_TEST(test_link_drop_while_walking_leaves_belt_unknown);
     RUN_TEST(test_walk_under_a_minute_is_not_worth_keeping);
     RUN_TEST(test_heart_rate_summary_counts_walking_seconds_only);
     RUN_TEST(test_segment_heart_rate_follows_segment_boundaries);

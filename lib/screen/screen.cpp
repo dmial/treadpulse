@@ -724,9 +724,9 @@ void Dashboard::message(const char* title, const char* detail) {
 void Dashboard::updateStatus(const Model& m) {
     std::string text;
     uint32_t color = kMuted;
-    if (m.strapTailLeftS >= 0 && m.upload != Upload::StorageError) {
-        // The walk is not complete yet, so not ready to upload either.
-        text = "recording pulse · " + minutesSeconds(static_cast<uint32_t>(m.strapTailLeftS)) + " left";
+    if (m.afterStopLeftS >= 0 && m.upload != Upload::StorageError) {
+        // A finished walk is not complete yet, so not ready to upload either.
+        text = "recording pulse · " + minutesSeconds(static_cast<uint32_t>(m.afterStopLeftS)) + " left";
         color = kPending;
     } else {
         switch (m.upload) {
